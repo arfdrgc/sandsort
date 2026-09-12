@@ -144,6 +144,15 @@ public class Container : MonoBehaviour {
     void buildShapeVisuals(Material colorMaterial, Color fallbackColor) {
         float cellSize = _board.cellSize;
 
+        // The cubes stay even when the Shape prefab's FBX is what the player sees (2026-09-13): each
+        // cube's Collider is what isPointerOverThis raycasts to pick the piece up, and its Transform is
+        // cellVisual(i) — the target ExtractionGrid hands SandExtractionController for the flying sand
+        // grains. Only the cube's MeshRenderer is switched off, and only when an FBX renderer exists;
+        // legacy levels (no Shape prefab) have nothing else to draw them.
+        bool fbxDrawsShape = _shapeVisual != null
+                             && _shapeVisual.fbxPlaceholder != null
+                             && _shapeVisual.fbxPlaceholder.GetComponentInChildren<Renderer>(true) != null;
+
         foreach (Vector2Int offset in _shape) {
             GameObject cell = GameObject.CreatePrimitive(PrimitiveType.Cube);
             cell.name = $"Cell_{offset.x}_{offset.y}";
@@ -158,6 +167,7 @@ public class Container : MonoBehaviour {
                 renderer.material = new Material(renderer.sharedMaterial);
                 renderer.material.color = fallbackColor;
             }
+            if (fbxDrawsShape) renderer.enabled = false;
 
             _colliders.Add(cell.GetComponent<Collider>());
             _cellVisuals.Add(cell.transform);

@@ -155,8 +155,8 @@ public class Board : MonoBehaviour {
     }
 
     // Local-space center of the shape's bounding box when its anchor sits at cell (0,0) of THIS
-    // Board — used both for centering a Container's visuals and (via worldToAnchorPoint) for
-    // resolving a drag position back to an anchor.
+    // Board. No longer used by the anchor <-> world helpers below (they place the root at cell
+    // (0,0), see anchorToWorldCenter).
     public Vector3 shapeCenterOffset(IReadOnlyList<Vector2Int> shape) {
         Vector2Int min = shapeMin(shape);
         Vector2Int max = shapeMax(shape);
@@ -216,21 +216,29 @@ public class Board : MonoBehaviour {
         return transform.TransformPoint(cellToLocalPosition(cell));
     }
 
+    // Where a Container's ROOT goes: the world centre of the shape's cell (0,0) at this anchor — NOT
+    // the shape's bounding-box centre (2026-09-13). Everything under the root is laid out from cell
+    // (0,0): Container's per-cell cubes at offset * cellSize, Shape's VisualRoot/FBX origin and its
+    // FillUIAnchor. Adding shapeCenterOffset here (left over from when the root itself was one
+    // centred primitive) drew every multi-cell shape (W-1)/2, (H-1)/2 cells off its real occupancy.
+    // `shape` is no longer read; kept so callers stay unchanged.
     public Vector3 anchorToWorldCenter(Vector2Int anchor, IReadOnlyList<Vector2Int> shape) {
-        return transform.TransformPoint(cellToLocalPosition(anchor) + shapeCenterOffset(shape));
+        return transform.TransformPoint(cellToLocalPosition(anchor));
     }
 
     // Continuous (fractional) counterparts of anchorToWorldCenter, in cell units — no rounding and
     // no clamping. Used only by Container's drag: the pointer position becomes a fractional anchor
     // the grid position steps toward, and the visual glides between anchors. Occupancy and
-    // extraction never see fractional anchors.
+    // extraction never see fractional anchors. The two stay exact inverses of each other; the drag
+    // only ever uses pointer DELTAS (Container.beginDrag's grab offset), so the reference point does
+    // not change how a drag feels.
     public Vector2 worldToAnchorPoint(Vector3 worldPosition, IReadOnlyList<Vector2Int> shape) {
-        Vector3 local = transform.InverseTransformPoint(worldPosition) - shapeCenterOffset(shape);
+        Vector3 local = transform.InverseTransformPoint(worldPosition);
         return new Vector2(local.x / _cellSize, local.y / _cellSize);
     }
 
     public Vector3 anchorPointToWorldCenter(Vector2 anchor, IReadOnlyList<Vector2Int> shape) {
-        Vector3 local = new Vector3(anchor.x * _cellSize, anchor.y * _cellSize, 0f) + shapeCenterOffset(shape);
+        Vector3 local = new Vector3(anchor.x * _cellSize, anchor.y * _cellSize, 0f);
         return transform.TransformPoint(local);
     }
 

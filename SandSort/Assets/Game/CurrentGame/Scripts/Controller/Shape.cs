@@ -95,20 +95,34 @@ public class Shape : MonoBehaviour {
         _rotation = rotation;
         _occupiedCells = rotatedCells(_canonicalCells, rotation);
 
-        Quaternion visual = visualRotationOf(rotation);
-        if (_visualRoot != null) {
-            _visualRoot.localPosition = visual * _visualRootBasePosition;
-            _visualRoot.localRotation = visual;
-        }
-
+        placeVisualRoot();
         placeFillAnchor();
     }
 
     // One board cell in world units, handed over by Container at build time (Board.cellSize). Also
-    // re-places the readout, since the anchor is measured in cells.
+    // re-places the readout and the visual, since both are measured in cells.
     public void setCellWorldSize(float cellWorldSize) {
         _cellWorldSize = cellWorldSize;
+        placeVisualRoot();
         placeFillAnchor();
+    }
+
+    // Turns VisualRoot to the gameplay rotation AND moves it by the same normalization shift the
+    // cells got (2026-09-13). The turn alone pivots about canonical cell (0,0), so the art landed at
+    // R^k(C) while the footprint is R^k(C) + shift — e.g. T4 at 90/180/270 drawn (0,-2)/(-2,-1)/(-1,0)
+    // cells off its occupiedCells. Adding shift * cellWorldSize puts every drawn cell on its occupied
+    // cell, including shapes whose cell (0,0) is empty (T4, Z4, Plus5): the shift is a per-axis min.
+    //
+    // Re-run from setCellWorldSize too: Level calls applyRotation before Container hands over the
+    // real cell size, so the first placement uses the default of 1.
+    void placeVisualRoot() {
+        if (_visualRoot == null) return;
+        captureBasePositions();
+
+        Quaternion visual = visualRotationOf(_rotation);
+        Vector2Int shift = normalizationShift(_canonicalCells, _rotation);
+        _visualRoot.localPosition = visual * _visualRootBasePosition + new Vector3(shift.x, shift.y, 0f) * _cellWorldSize;
+        _visualRoot.localRotation = visual;
     }
 
     // Puts FillUIAnchor on the bottom-right CORNER of the piece's bottom-right occupied cell:
@@ -198,6 +212,24 @@ public class Shape : MonoBehaviour {
             for (int i = 0; i < result.Count; i++) result[i] -= new Vector2Int(minX, minY);
         }
         return result;
+    }
+
+    // The shift rotatedCells adds after turning: minus the per-axis minimum of the turned (not yet
+    // normalized) cells, using the same clockwise step. rotatedCells(cells, r)[i] ==
+    // turned(cells[i]) + normalizationShift(cells, r).
+    public static Vector2Int normalizationShift(IReadOnlyList<Vector2Int> cells, ShapeRotation rotation) {
+        if (cells.Count == 0) return Vector2Int.zero;
+        int steps = (int)rotation & 3;
+
+        int minX = int.MaxValue;
+        int minY = int.MaxValue;
+        for (int i = 0; i < cells.Count; i++) {
+            Vector2Int cell = cells[i];
+            for (int step = 0; step < steps; step++) cell = new Vector2Int(cell.y, -cell.x);
+            minX = Mathf.Min(minX, cell.x);
+            minY = Mathf.Min(minY, cell.y);
+        }
+        return new Vector2Int(-minX, -minY);
     }
 
     void captureBasePositions() {

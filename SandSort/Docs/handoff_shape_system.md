@@ -1,13 +1,156 @@
-# Handoff — Shape prefab system & FBX integration prep
+# Handoff — Shape prefab system & FBX integration
 
-Written 2026-09-12 at the end of the session. **Phase 1 is still open: nothing has been committed**
-(`git log` still shows only `091cdab first`). Everything below is in the working tree.
+Last updated 2026-09-13 at the end of the FBX-integration session. **Phase 1 is still open.** The
+latest commit is `b53a3db Core Game Play Update`; **nothing from the 2026-09-13 session is
+committed** — it all lives in the working tree (see 0.6).
 
-Next session's first goal is **visual verification / asset-integration setup**, not new gameplay.
+Section 0 is the current state and the next task. Sections 1–5 are the 2026-09-12 handoff, kept for
+reference and corrected where this session superseded them.
 
 ---
 
-## 1. What this session finished
+## 0. Current status — Shape / FBX integration (2026-09-13)
+
+### 0.1 FBX integration — done, verified
+
+- All **13** canonical Shape prefabs now render their real FBX from `Assets/Game/CurrentGame/FBXs/`.
+- Hierarchy (identical in all 13; nothing else in the prefab changed):
+  ```
+  Shape_X                          <- Shape.cs
+  ├── VisualRoot
+  │   └── FBX_Placeholder
+  │       └── Shape_X  (FBX prefab instance)  localPosition (0,0,0) · localRotation (0,180,0) · localScale (1,1,1)
+  └── FillUIAnchor
+      └── FillPercentageUI
+  ```
+- **Import settings untouched:** `globalScale 1`, `useFileScale 1`, `fileScale 1`,
+  `bakeAxisConversion 0`. One cell = 0.85, thickness 0.5. No scale correction anywhere.
+- **The `(0,180,0)` is a coordinate-system conversion, not a visual nudge.** Blender contract:
+  shape plane XZ, thickness Y. Gameplay (verified in code, see 0.7): plane **XY**, thickness **Z**,
+  camera at −Z looking +Z. As imported, the FBX root carries the importer's `(270,0,0)` and the cells
+  run −X/−Z; writing `(0,180,0)` on the instance replaces that and nets a proper rotation (det +1, no
+  mirror) that puts cells on +X/+Y with the top face toward −Z. Proof it is not a mirror: L4↔J4 and
+  S4↔Z4 stay distinct and match canonical. **Depends on `bakeAxisConversion = 0`** — turning that on
+  would make `(0,180,0)` wrong.
+- **T4** was re-exported from Blender as `### / .#.` (cells `(1,0)(0,1)(1,1)(2,1)`, origin at the
+  EMPTY cell (0,0)) and integrated with the same pattern — no extra Z rotation, no offset. The old T4
+  FBX had been authored stem-up (the spec's mirrored cell list), not a coordinate problem.
+- Material: each FBX embeds its own `M_Shape` (URP/Lit, `_BaseColor` ≈ (0.565, 0.976, 0.400) green,
+  no texture, one submesh). Same for all 13.
+
+### 0.2 B fix — Container root placement (`Board.cs`) — done, verified
+
+- `anchorToWorldCenter`, `anchorPointToWorldCenter`, `worldToAnchorPoint` no longer add/subtract
+  `shapeCenterOffset`. Contract now: `anchor ↔ anchor * cellSize` (board-local).
+- Container root == world centre of the shape's cell (0,0). Everything under the root (cubes,
+  VisualRoot/FBX, FillUIAnchor) was already laid out from cell (0,0); the old bbox-centre root drew
+  every multi-cell shape `((W'-1)/2, (H'-1)/2)` cells off its occupancy (legacy of the root once being
+  one centred primitive; present since `091cdab`).
+- Signatures kept (`shape` param now unused); `shapeCenterOffset` kept, no longer called by these.
+- Drag feel unchanged by construction: `grabOffset` cancels the reference point
+  (`wanted = (p − p0)/cs + v0`).
+- Verified in Play: cubes vs `cellToWorldCenter(grid + cell)` err 0 (10/10 containers); 0° FBX origin
+  on cell (0,0); inverse check max err 2.1e-6 over 1000 anchors; grab offset exact, no jump at grab,
+  +3.3-cell drag lands visual 6.300 / grid 6; release glide settles; board edge stops at x = 8;
+  obstacle stops flush.
+
+### 0.3 A fix — rotation normalization (`Shape.cs`) — done, verified
+
+- Cause: `rotatedCells` normalizes `R^k(C)` by `shift = −min(R^k(C))`, but VisualRoot only rotated
+  about cell (0,0). Visual − gameplay was `(0,−(W−1))` / `(−(W−1),−(H−1))` / `(−(H−1),0)` at
+  90 / 180 / 270 (W×H = canonical bbox). Per-axis min, so shapes with an empty (0,0) are covered.
+- Fix: new `Shape.normalizationShift(cells, rotation)` (same clockwise step as `rotatedCells`, which
+  is **unchanged**) and `placeVisualRoot()`:
+  `VisualRoot.localPosition = visual * base + shift * _cellWorldSize`, rotation unchanged.
+  Called from **both** `applyRotation` and `setCellWorldSize` — `Level` calls `applyRotation` before
+  `Container.initialize` hands over the real cell size. Call-order and repeat independent (verified).
+- Verified in Play: T4 / L4 / S4 / U5 / Plus5 × 0/90/180/270 = **20/20** FBX cells == `occupiedCells`,
+  FBX cell-centre err 0.0000, all inside the floor when flush to the top-right corner. T4 world
+  offsets `(0,−2)/(−2,−1)/(−1,0)` → `(0,0)` at 90/180/270 (VisualRoot lp `(0,1.70)/(1.70,0.85)/(0.85,0)`).
+  Real `Container`s at T4 180/270: `cellVisual(i)` == FBX cell centre == board cell centre. Drag,
+  obstacle, board edge and release re-verified on a rotated container (T4 90°).
+
+### 0.4 Container cubes — renderers hidden, gameplay role kept (`Container.cs`) — done, verified
+
+- Cubes are **not** deleted. Analysis of what uses them:
+  - Occupancy, collision/sweep, extraction amounts/columns: **no** (anchor maths only).
+  - `cellVisual(i)`: **yes** — returns the cube Transform.
+  - Sand grain target: **yes** — `ExtractionGrid.cs:150` passes `cellVisual(i)`;
+    `SandExtractionParticleEffect.SpawnGrain` reads only `targetCube.position`.
+  - Pointer picking: **yes** — `Container.isPointerOverThis` raycasts the cube Colliders.
+- Change: in `buildShapeVisuals`, `renderer.enabled = false` **only when** the Shape's
+  `FBX_Placeholder` has a Renderer. Legacy levels (no Shape prefab) still draw their cubes. The colour
+  material is still assigned to the (hidden) cubes.
+- Verified in Play: 43 cubes, 0 visible cube renderers, all colliders on and active; pick rays 43/43
+  hit, rays through bbox holes hit nothing; extraction ran (GREEN U5 90° 0 → 840, U5 0° 0 → 883).
+  Grain target checked by calling `SpawnGrain` on the hidden cubes: X lands on the target; Y scatter
+  is the system's own ±15 % fall-time jitter. In-flight grains were not caught live (too short-lived
+  for MCP round-trips).
+
+### 0.5 Still open (known, deliberately not done)
+
+1. **FBX runtime colour — next session's first task (see 0.8).** Every piece currently renders
+   green; the level colour is only on the hidden cubes.
+2. **Fill UI z-fighting:** `FillUIAnchor` z = −0.5 is coplanar with the FBX front face (FBX spans
+   z −0.5..0). Separate task after colour.
+3. Console warning on the active level: `Sand pattern is 5 block(s) wide but the board has 10
+   column(s)` — the CoreLoop level's board measured **(10, 15)** this session (section 3.2 still says
+   (5,15)). Level data, not touched.
+4. `Captures/` (project root, untracked) holds this session's diagnostic screenshots
+   (`fbx_1x1_check`, `rotation_diag_play`, `rootfix_B_play`, `rotationfix_A_play`,
+   `cubes_hidden_play`). Not part of the game; delete or ignore.
+
+### 0.6 Working-tree changes from this session (uncommitted)
+
+| Path | Change |
+|---|---|
+| `Assets/Game/CurrentGame/FBXs/` | **Untracked.** 13 `Shape_*.fbx` + `Board_Canvas/Cell/Frame.fbx` (+ .meta) |
+| `Assets/Game/CurrentGame/Prefabs/Shapes/*.prefab` (13) | FBX instance added under `VisualRoot/FBX_Placeholder` |
+| `Assets/Game/CurrentGame/Scripts/Controller/Board.cs` | B fix (three helpers) |
+| `Assets/Game/CurrentGame/Scripts/Controller/Shape.cs` | A fix (`normalizationShift`, `placeVisualRoot`) |
+| `Assets/Game/CurrentGame/Scripts/Controller/Container.cs` | Cube `MeshRenderer` disabled when an FBX draws the shape |
+
+### 0.7 Coordinate system (verified from code, keep)
+
+- Gameplay plane **XY**: `Board.cellToLocalPosition` = `(x*cs, y*cs, 0)`; sand quad identity in XY;
+  gravity/sand bottom along −Y.
+- Thickness **Z**: cubes z −0.25..0.25, floor at z +0.2 (behind), Fill UI z −0.5 (front); drag plane
+  normal = `board.forward`.
+- Camera: `Level.setupCamera` forces orthographic, rotation identity, `z = bounds.min.z − 10`,
+  re-asserted every `Update`. GameScene's authored `PerspectiveCamera` (0,20,0, 70° X) is the old
+  Pixel Loop Blast top-down setup and is overridden at runtime.
+- Rotation about Z, clockwise, 90° steps; the Shape root is never rotated.
+
+### 0.8 Next session — FIRST TASK: FBX runtime colour
+
+**Problem:** all FBX renderers use the embedded green `M_Shape`; with the cube renderers hidden the
+Container's real `ColorSO` colour is no longer visible.
+
+**Goal:**
+- The FBX shows its Container's `ColorSO` colour at runtime.
+- Do **not** modify the `M_Shape` material asset(s); recolouring one Container must not affect any
+  other Shape.
+- Prefer `MaterialPropertyBlock` (or the equivalent that fits the existing render architecture — the
+  project copies serialized materials and never uses `Shader.Find`, see `SandCylinderRenderer`'s
+  Android note and `Board.buildFloorVisual`).
+- Container cube `MeshRenderer`s stay disabled.
+
+**Before changing anything, analyse and confirm the current pipeline:**
+`ColorSO → Level (containerMaterialOf(data.color)) → Container.initialize(colorMaterial, fallbackColor)
+→ cube renderers today / FBX Renderer (target) → Material`. Known starting facts: `Level.buildContainers`
+resolves `colorMaterial` from the colour's ColorSO (MoowCore `Basic_Colors`) and falls back to the sand
+palette colour; `Container.buildShapeVisuals` is the only place it is applied, to the cubes only. Check
+which colour property the ColorSO material and URP/Lit `M_Shape` use (`_BaseColor` vs `_Color`) and
+SRP Batcher implications of property blocks. Then make the **minimum** change.
+
+**Do not touch:** Board placement, Shape rotation/normalization, FBX files, prefab geometry,
+Container positioning, extraction logic, SandCylinder, drag/snap, Fill UI, level data. Transform,
+Collider, `cellVisual`, extraction and grain target must stay as they are. No unrelated
+cleanup/refactor. **No commit.** Fill UI / z-fighting stays a separate later task.
+
+---
+
+## 1. Previous session (2026-09-12) — what it finished
 
 ### 1.1 Fill Percentage UI positioning (the last piece of work)
 
@@ -132,6 +275,8 @@ still reachable (they are the 180 of the canonical).
 - Visual side gets `Quaternion.Euler(0, 0, -90 * steps)`, applied to **VisualRoot only** (and with it
   `FBX_Placeholder`). The Shape root is **never** rotated, because `Container` places its own
   per-cell visuals from the already-rotated cell data — rotating the root would double-apply.
+- **Since 2026-09-13** VisualRoot is also moved by the cells' normalization shift
+  (`shift * cellWorldSize`, see 0.3) — rotation alone left rotated art 1–3 cells off `occupiedCells`.
 - **The canonical prefab is never rewritten.** `applyRotation` only derives a rotated list plus the
   matching visual transform; the asset always sits at Deg0.
 - Level data carries `Shape + Position + Rotation + Colour`, so one prefab covers all orientations.
@@ -146,17 +291,12 @@ Shape_L4                     <- Shape.cs
     └── FillPercentageUI      <- world-space TextMeshPro, localScale 0.12, fontSize 40
 ```
 
-Identical in all 13 prefabs. Current state of the placeholder:
-
-- `FBX_Placeholder` has **no mesh, no collider, no material, no gameplay role**. Its local
-  position/rotation/scale are free Inspector values for lining art up.
-- 0 MeshFilters and 0 Colliders across every Shape prefab (verified).
-- Target layout once the art lands: `VisualRoot / FBX_Placeholder / RealShapeFBX`.
-- The placeholder cubes you see in Play are built by `Container.buildShapeVisuals()` as children of
-  the **root** (not of VisualRoot), one per occupied cell, at `localPosition = offset * cellSize`,
-  `localScale = (cellSize*0.9, cellSize*0.9, 0.5)`, with a Collider used for pointer picking. **That
-  is the switch-over point when the real FBX arrives** — decide there whether to keep the cubes (for
-  picking) and hide their renderers, or replace them.
+Identical in all 13 prefabs. **Superseded 2026-09-13 — see 0.1 and 0.4:** `FBX_Placeholder` now
+holds the real FBX instance (`localRotation (0,180,0)`), and the per-cell cubes built by
+`Container.buildShapeVisuals()` (children of the **root**, `localPosition = offset * cellSize`,
+`localScale = (cellSize*0.9, cellSize*0.9, 0.5)`) are kept for their Collider (pointer picking) and
+Transform (`cellVisual(i)` / grain target) with their `MeshRenderer` disabled. `FBX_Placeholder`
+itself still has no gameplay role and gameplay never reads the FBX mesh or bounds.
 
 ### 2.4 Assumptions Blender assets must respect
 
@@ -178,7 +318,10 @@ Identical in all 13 prefabs. Current state of the placeholder:
   Keep the model's depth within about half a cell so the readout stays in front of it.
 - Gameplay never reads a mesh, a Renderer or any bounds — the FBX is decoration only. Do not derive
   footprints from it.
-- FBX destination folder already exists and is **empty**: `Assets/Game/CurrentGame/FBXs/`.
+- ~~FBX destination folder is empty~~ — filled 2026-09-13. The Blender export contract actually used is
+  **plane XZ, thickness Y, 1 cell = 0.85, origin at canonical cell (0,0)**, converted to the XY/−Z
+  gameplay convention by the `(0,180,0)` instance rotation (see 0.1). The "model facing −Z" line above
+  describes the gameplay space, not what Blender exports.
 
 ---
 
@@ -296,11 +439,11 @@ measured **once** in `initialize` and cached, then re-asserted every frame to be
 
 | Path | Role |
 |---|---|
-| `Assets/Game/CurrentGame/Scripts/Controller/Shape.cs` | **NEW, untracked.** `ShapeType`, `ShapeRotation`, canonical cells, `applyRotation`, `rotatedCells`, `setCellWorldSize`, `placeFillAnchor`, `setFillPercent` |
-| `Assets/Game/CurrentGame/Scripts/Controller/Container.cs` | Drag/collision/sweep, per-cell visuals, fill + sealing, `refreshFillDisplay`, `setCellWorldSize` call |
+| `Assets/Game/CurrentGame/Scripts/Controller/Shape.cs` | `ShapeType`, `ShapeRotation`, canonical cells, `applyRotation`, `rotatedCells`, `normalizationShift` + `placeVisualRoot` (2026-09-13), `setCellWorldSize`, `placeFillAnchor`, `setFillPercent` |
+| `Assets/Game/CurrentGame/Scripts/Controller/Container.cs` | Drag/collision/sweep, per-cell cubes (renderer hidden when an FBX draws the shape; Collider + Transform still used), fill + sealing, `refreshFillDisplay`, `setCellWorldSize` call |
 | `Assets/Game/CurrentGame/Scriptables/SandLevelSO.cs` | `SandLevelSO` + `ContainerData` (`position`, `shape`, `rotation`, `cells` (legacy), `color`, `occupiedCells`, `hasMissingShapeReference`), `validateLevel` |
 | `Assets/Game/CurrentGame/Scripts/Controller/Level.cs` | Builds sand area, Board, Containers; capacity split; camera framing |
-| `Assets/Game/CurrentGame/Scripts/Controller/Board.cs` | Grid geometry, occupancy, cell↔world conversions, floor visual |
+| `Assets/Game/CurrentGame/Scripts/Controller/Board.cs` | Grid geometry, occupancy, cell↔world conversions (root = cell (0,0) since 2026-09-13), floor visual |
 | `Assets/Game/CurrentGame/Scripts/Controller/ExtractionGrid.cs` | Per-Container sand interaction; footprint-overlap extraction. **Do not rewrite** |
 | `Assets/Game/CurrentGame/Scriptables/GameplayTunables.cs` | Gameplay-only tuning SO (class) |
 | `Assets/Game/CurrentGame/Data/Tuning/GameplayTunables.asset` | Its values |
@@ -310,7 +453,7 @@ measured **once** in `initialize` and cached, then re-asserted every frame to be
 | `Assets/Game/CurrentGame/Data/Levels/SandSort_CoreLoop_Test_Level.asset` | **Active test level** (10 shapes) |
 | `Assets/Game/MoowCore/Data/Level_Lists/0_Temp_Level_List.asset` | `_testLevel` → **CoreLoop** (repointed from Phase1 this session; one field to flip back) |
 | `Assets/Game/CurrentGame/Data/Levels/SandSort_Phase1_1x1_Level.asset` | Migrated 5x 1x1 level, kept as the regression baseline |
-| `Assets/Game/CurrentGame/FBXs/` | **Empty — destination for the Blender FBXs** |
+| `Assets/Game/CurrentGame/FBXs/` | 13 Shape FBXs + 3 Board FBXs (untracked; Board FBXs not integrated) |
 | `Assets/Scenes/BaseScene.unity` | **Always start playtests here**, never from `GameScene.unity` |
 | `Docs/selected_sand_idea_mockup.png` | The visual reference for the Fill UI badge |
 
@@ -322,6 +465,10 @@ loaded; `SandSort_CoreLoop_Test_Level` used to be orphaned. No cleanup was done.
 ---
 
 ## 5. Suggested order for the next session
+
+**Superseded 2026-09-13.** Steps 1–4 and 8 are done (see section 0); the next session starts with the
+FBX runtime colour task in **0.8**, then the Fill UI z-fighting. Steps 5, 6, 7 and 9 below are still
+open and still valid, in that order, after those two.
 
 1. **Blender:** author the mockup's shape assets.
 2. Import **one** Shape FBX into `Assets/Game/CurrentGame/FBXs/` and parent it under that prefab's
