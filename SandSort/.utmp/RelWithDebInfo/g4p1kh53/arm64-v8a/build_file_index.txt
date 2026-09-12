@@ -1,0 +1,3 @@
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/src/main/cpp/CMakeLists.txt
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/src/main/cpp/FramePacing/CMakeLists.txt
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/src/main/cpp/GameActivity/CMakeLists.txt

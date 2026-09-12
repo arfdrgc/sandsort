@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "prefabPath": "/Users/arifdurgec/.gradle/caches/modules-2/files-2.1/com.google.prefab/cli/2.1.0/aa32fec809c44fa531f01dcfb739b5b3304d3050/cli-2.1.0-all.jar",
+  "packages": [
+    "/Users/arifdurgec/.gradle/caches/8.13/transforms/1b911df58ffd3c3da53c29f63fb1df20/transformed/jetified-games-activity-3.0.5/prefab",
+    "/Users/arifdurgec/.gradle/caches/8.13/transforms/5ea2429ff3a7d3c30f4bc157cd9aab29/transformed/jetified-games-frame-pacing-1.10.0/prefab"
+  ]
+}

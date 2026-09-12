@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6796e98d92a764eabb2a3412fd254322, type: 3}
+  m_Name: SandSort_Phase1_1x1_Level
+  m_EditorClassIdentifier: Assembly-CSharp::SandLevelSO
+  _levelPrefab: {fileID: 3500330111660482340, guid: 6cadf0c9289244df8da0cd252d847e23, type: 3}
+  _difficulty: 0
+  _levelTutorial: {fileID: 0}
+  _expandBottom: 0
+  _centerFactor: 0
+  _colorPalette: {fileID: 0}
+  _boardSize: {x: 5, y: 5}
+  _containers:
+  - position: {x: 3, y: 4}
+    cells:
+    - {x: 0, y: 0}
+    color: 161
+  - position: {x: 1, y: 3}
+    cells:
+    - {x: 0, y: 0}
+    color: 101
+  - position: {x: 4, y: 2}
+    cells:
+    - {x: 0, y: 0}
+    color: 141
+  - position: {x: 0, y: 1}
+    cells:
+    - {x: 0, y: 0}
+    color: 121
+  - position: {x: 2, y: 0}
+    cells:
+    - {x: 0, y: 0}
+    color: 171
+  _sandPattern: {fileID: 11400000, guid: 65ee15787bbec454cb3741f942d75451, type: 2}
+  _timerSeconds: 600

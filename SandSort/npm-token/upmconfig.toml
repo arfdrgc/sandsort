@@ -1,0 +1,3 @@
+[npmAuth."https://npm-ex.azurgames.com/"] 
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyZWFsX2dyb3VwcyI6WyJtb293Z2FtZXMiXSwibmFtZSI6Im1vb3dnYW1lcyIsImdyb3VwcyI6WyJtb293Z2FtZXMiLCIkYWxsIiwiJGF1dGhlbnRpY2F0ZWQiLCJAYWxsIiwiQGF1dGhlbnRpY2F0ZWQiLCJhbGwiXSwiaWF0IjoxNzgwMzI3OTQzLCJuYmYiOjE3ODAzMjc5NDMsImV4cCI6MTc5NTg3OTk0M30.SMYquccpKDj0diJJho9wZhLCvK4TZar2pr2AErY5bX0"
+alwaysAuth = true

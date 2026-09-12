@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: 33614ec560af748d5af0eec318d3a04e
+timeCreated: 1518639643
+licenseType: Store
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 11400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 129996
+  packageName: NaughtyAttributes
+  packageVersion: 2.1.6
+  assetPath: Assets/NaughtyAttributes/Samples/DemoScene/TestAssets/NaughtyScriptableObjecA.asset
+  uploadId: 943610

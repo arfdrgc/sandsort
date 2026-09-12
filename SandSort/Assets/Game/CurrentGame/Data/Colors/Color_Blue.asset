@@ -1,0 +1,16 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3debfb99f2e7748dbaa97b96c2623e38, type: 3}
+  m_Name: Color_Blue
+  m_EditorClassIdentifier: Assembly-CSharp::ColorSO
+  _color: 101
+  _objectiveItemMaterial: {fileID: 2100000, guid: 260ed2d2d6354435aa5123e9471b40fa, type: 2}

@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b6d2e901b9f744de9bb18b67b91e013b, type: 3}
+  m_Name: _PLATE_SELECTED
+  m_EditorClassIdentifier: 
+  _clips:
+  - {fileID: 8300000, guid: 2de15f9cc8b887c46ac37e10870ef758, type: 3}
+  _volumeType: 0
+  _singleVolume: 0.307
+  _volumeRange: {x: 0.8, y: 1}
+  _loop: 0
+  _enableTimeInterval: 0
+  _interval: 0
+  _usePitch: 1
+  _pitch: {x: 1, y: 1}
+  _pitchStep: 4
+  _resetPitchInterval: 0
+  _pitchType: 0
+  _pitchRewind: 0
+  _randomPitch: 0
+  _useRandomness: 0
+  _randomnessType: 0

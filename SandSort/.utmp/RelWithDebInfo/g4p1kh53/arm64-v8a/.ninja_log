@@ -1,0 +1,23 @@
+# ninja log v5
+4	2080	1783079499647247833	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	91f3dfbf9b144f1d
+6	1773	1783079499340372660	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	eb9822a0313550ca
+2080	2203	1783079499772427486	/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/g4p1kh53/obj/arm64-v8a/libgame.so	5d120d44eb4d26de
+4	1812	1783079499375455093	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	5b77a40489cdc752
+5	1746	1783079499311807541	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	6bcd4d5054e729b7
+4	1752	1783079499316685317	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	82c744a74ba4b4f4
+5	1702	1783079499267520303	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	e4c691f99d7d9dd0
+5	1987	1783079499555353910	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	5d316448a6fb4d35
+6	1841	1783079499409455154	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	fbe51f241b5c245a
+975	1435	1783079499001413838	/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/g4p1kh53/obj/arm64-v8a/libswappywrapper.so	ee2c7e89395f9c49
+6	974	1783079498540803726	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	94a2ddaa13caeb50
+12	815	1783080456465407818	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	94a2ddaa13caeb50
+815	1215	1783080456866940160	/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/g4p1kh53/obj/arm64-v8a/libswappywrapper.so	ee2c7e89395f9c49
+11	1639	1783080457290041754	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	e4c691f99d7d9dd0
+11	1678	1783080457328556009	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	6bcd4d5054e729b7
+11	1679	1783080457331169717	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	eb9822a0313550ca
+10	1718	1783080457370292681	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	82c744a74ba4b4f4
+10	1722	1783080457374188098	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	5b77a40489cdc752
+12	1799	1783080457452910191	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	fbe51f241b5c245a
+11	1933	1783080457587100041	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	5d316448a6fb4d35
+9	1977	1783080457631491088	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	91f3dfbf9b144f1d
+1977	2098	1783080457754562937	/Users/arifdurgec/Unity Projeleri/GitHubProjects/U6_FishingRushCrew/U6-FishingRushCrew/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/g4p1kh53/obj/arm64-v8a/libgame.so	5d120d44eb4d26de

@@ -1,0 +1,27 @@
+﻿<Solution>
+  <Project Path="Obi.csproj" />
+  <Project Path="NaughtyAttributes.Test.csproj" />
+  <Project Path="Dreamteck.Splines.Editor.csproj" />
+  <Project Path="Dreamteck.Splines.csproj" />
+  <Project Path="NaughtyAttributes.Core.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="Obi.Editor.csproj" />
+  <Project Path="sc.stylizedwater2.editor.csproj" />
+  <Project Path="NaughtyAttributes.Editor.csproj" />
+  <Project Path="AppsFlyer.csproj" />
+  <Project Path="UnityUIExtensions.editor.csproj" />
+  <Project Path="ToonyColorsPro.Editor.csproj" />
+  <Project Path="UnityUIExtensions.csproj" />
+  <Project Path="ToonyColorsPro.Runtime.csproj" />
+  <Project Path="Dreamteck.Utilities.csproj" />
+  <Project Path="Unity.Splines.Examples.Editor.csproj" />
+  <Project Path="Assembly-CSharp-firstpass.csproj" />
+  <Project Path="KinoBloom.Runtime.csproj" />
+  <Project Path="Unity.Splines.Examples.csproj" />
+  <Project Path="ToonyColorsPro2.Demo.csproj" />
+  <Project Path="AppsFlyer.Editor.csproj" />
+  <Project Path="sc.stylizedwater2.runtime.csproj" />
+  <Project Path="ToonyColorsPro.Demo.Editor.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="Dreamteck.Utilities.Editor.csproj" />
+</Solution>

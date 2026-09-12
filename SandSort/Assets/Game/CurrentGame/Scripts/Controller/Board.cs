@@ -1,0 +1,253 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+// Prototype default: a discrete grid. Containers occupy an arbitrary set of cells (a "shape" —
+// see Container._shape); two containers can never share a cell. See SandLevelSO's header
+// comment for the full list of prototype defaults this resolves from game_mechanics.md's Open
+// Design Questions.
+//
+// Layout convention (2026-09-11): the Board lies flat in the XY plane at local Z ~ 0, facing
+// a camera looking down +Z — like a phone screen, not a 3D tabletop. Grid cell.x -> world X
+// (left/right), cell.y -> world Y (up/down). The sand area sits directly above the Board along
+// this same Y axis, matching the reference concept art (picture on top, containers below).
+// Row (size.y - 1) is the topmost row, directly under the sand area — see topRow and
+// ExtractionGrid's extraction rule.
+//
+// Cell size (2026-09-11): no longer a fixed 1 world unit. Level.buildBoard passes
+// SandCylinderTunables.CubeWorldSize — exactly one SandCylinderDemo sand block's world width — so
+// board column c sits exactly under sand block c. See Level.buildBoard for the full alignment.
+public class Board : MonoBehaviour {
+
+    // Retired: only the old SandCanvas.cs (no longer built by Level, pending deletion) still reads
+    // this. Board geometry itself uses cellSize.
+    public const float CELL_SIZE = 1f;
+    const float FLOOR_DEPTH_OFFSET = 0.2f;
+
+    Vector2Int _size;
+    float _cellSize = 1f;
+    // Flat 1D array (index = x + y * _size.x), NOT Container[,] — Unity cannot serialize
+    // rectangular arrays, so a 2D array silently resets to null on a domain reload triggered
+    // mid-Play (e.g. a script recompile), even though this field is never meant to be inspector-visible.
+    Container[] _occupancy;
+
+    public Vector2Int size => _size;
+    public float cellSize => _cellSize;
+    public int topRow => _size.y - 1;
+
+    // Floor look (mockup reference): dark rounded tiles separated by thin gaps, so every cell reads
+    // on its own. Painted into ONE texture on ONE quad — no per-cell GameObjects — and purely
+    // visual: occupancy and grid math never look at it.
+    const int FLOOR_PIXELS_PER_CELL = 64;
+    const float FLOOR_CELL_GAP = 0.05f;          // per side, as a fraction of a cell
+    const float FLOOR_CELL_CORNER_RADIUS = 0.14f; // as a fraction of a cell
+    static readonly Color32 FLOOR_CELL_TOP_COLOR = new Color32(54, 60, 108, 255);
+    static readonly Color32 FLOOR_CELL_BOTTOM_COLOR = new Color32(36, 40, 80, 255);
+    static readonly Color32 FLOOR_GAP_COLOR = new Color32(18, 20, 44, 255);
+
+    Texture2D _floorTexture;
+    Material _floorMaterial;
+    Renderer _floorRenderer;
+
+    // World bounds of the board floor (every cell) — what Level frames the camera on, together
+    // with the sand area.
+    public Bounds floorBounds => _floorRenderer != null ? _floorRenderer.bounds : new Bounds(transform.position, Vector3.zero);
+
+    // floorBaseMaterial must be a pre-authored unlit texture material (Level passes
+    // SandCylinderSandUnlit.mat) — copied, never built via Shader.Find; see SandCylinderRenderer's
+    // Android note.
+    public void initialize(Vector2Int size, float cellSize, Material floorBaseMaterial) {
+        _size = size;
+        _cellSize = cellSize;
+        _occupancy = new Container[size.x * size.y];
+
+        buildFloorVisual(size, floorBaseMaterial);
+    }
+
+    void OnDestroy() {
+        if (_floorTexture != null) Destroy(_floorTexture);
+        if (_floorMaterial != null) Destroy(_floorMaterial);
+    }
+
+    void buildFloorVisual(Vector2Int size, Material floorBaseMaterial) {
+        GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        floor.name = "BoardFloor";
+        floor.transform.SetParent(transform, false);
+        floor.transform.localPosition = boundsCenterOffset(Vector2Int.zero, size) + new Vector3(0f, 0f, FLOOR_DEPTH_OFFSET);
+        floor.transform.localScale = new Vector3(size.x * _cellSize, size.y * _cellSize, 1f);
+        Destroy(floor.GetComponent<Collider>());
+        _floorRenderer = floor.GetComponent<Renderer>();
+
+        if (floorBaseMaterial == null) {
+            Debug.LogError("[Board::buildFloorVisual] No floor base material — assign the Level prefab's Sand Material.");
+            return;
+        }
+
+        _floorTexture = buildFloorTexture(size);
+        _floorMaterial = new Material(floorBaseMaterial);
+        _floorMaterial.mainTexture = _floorTexture;
+        floor.GetComponent<Renderer>().sharedMaterial = _floorMaterial;
+    }
+
+    // Texture row 0 / column 0 is the quad's bottom-left, i.e. board cell (0,0), matching the
+    // cell.x -> X, cell.y -> Y layout convention above.
+    static Texture2D buildFloorTexture(Vector2Int size) {
+        int pixelsPerCell = FLOOR_PIXELS_PER_CELL;
+        int width = size.x * pixelsPerCell;
+        int height = size.y * pixelsPerCell;
+        float antiAliasBand = 1.5f / pixelsPerCell;
+
+        Color32[] pixels = new Color32[width * height];
+        for (int y = 0; y < height; y++) {
+            float v = (y % pixelsPerCell + 0.5f) / pixelsPerCell;
+            Color32 tileColor = Color32.Lerp(FLOOR_CELL_BOTTOM_COLOR, FLOOR_CELL_TOP_COLOR, v);
+
+            for (int x = 0; x < width; x++) {
+                float u = (x % pixelsPerCell + 0.5f) / pixelsPerCell;
+                float coverage = Mathf.Clamp01(0.5f - roundedTileDistance(u, v) / antiAliasBand);
+                pixels[y * width + x] = Color32.Lerp(FLOOR_GAP_COLOR, tileColor, coverage);
+            }
+        }
+
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.filterMode = FilterMode.Bilinear;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.SetPixels32(pixels);
+        texture.Apply(false);
+        return texture;
+    }
+
+    // Signed distance, in cell units, from (u, v) inside one cell to the edge of that cell's
+    // rounded tile: negative inside the tile, positive in the gap around it.
+    static float roundedTileDistance(float u, float v) {
+        float innerHalfExtent = 0.5f - FLOOR_CELL_GAP - FLOOR_CELL_CORNER_RADIUS;
+        float qx = Mathf.Abs(u - 0.5f) - innerHalfExtent;
+        float qy = Mathf.Abs(v - 0.5f) - innerHalfExtent;
+        float outside = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude;
+        float inside = Mathf.Min(Mathf.Max(qx, qy), 0f);
+        return outside + inside - FLOOR_CELL_CORNER_RADIUS;
+    }
+
+    int cellIndex(int x, int y) => x + y * _size.x;
+
+    // -- Shape helpers -----------------------------------------------------------------------
+    // A "shape" is a list of cell offsets relative to an anchor position (ContainerData.cells /
+    // Container.shape). These helpers turn that into absolute cells, bounding boxes, and the
+    // local-space center used for visual placement — generalizing the old single-rectangle
+    // footprint math to arbitrary shapes (1x1, 2x1, L, T, ...).
+
+    public static Vector2Int shapeMin(IReadOnlyList<Vector2Int> shape) {
+        Vector2Int min = shape[0];
+        for (int i = 1; i < shape.Count; i++) {
+            min.x = Mathf.Min(min.x, shape[i].x);
+            min.y = Mathf.Min(min.y, shape[i].y);
+        }
+        return min;
+    }
+
+    public static Vector2Int shapeMax(IReadOnlyList<Vector2Int> shape) {
+        Vector2Int max = shape[0];
+        for (int i = 1; i < shape.Count; i++) {
+            max.x = Mathf.Max(max.x, shape[i].x);
+            max.y = Mathf.Max(max.y, shape[i].y);
+        }
+        return max;
+    }
+
+    // Local-space center of the shape's bounding box when its anchor sits at cell (0,0) of THIS
+    // Board — used both for centering a Container's visuals and (via worldToAnchorPoint) for
+    // resolving a drag position back to an anchor.
+    public Vector3 shapeCenterOffset(IReadOnlyList<Vector2Int> shape) {
+        Vector2Int min = shapeMin(shape);
+        Vector2Int max = shapeMax(shape);
+        return new Vector3((min.x + max.x) * _cellSize * 0.5f, (min.y + max.y) * _cellSize * 0.5f, 0f);
+    }
+
+    Vector3 boundsCenterOffset(Vector2Int anchor, Vector2Int size) {
+        return new Vector3(anchor.x + (size.x - 1) * 0.5f, anchor.y + (size.y - 1) * 0.5f, 0f) * _cellSize;
+    }
+
+    public bool isInBounds(Vector2Int anchor, IReadOnlyList<Vector2Int> shape) {
+        foreach (Vector2Int offset in shape) {
+            Vector2Int cell = anchor + offset;
+            if (cell.x < 0 || cell.y < 0 || cell.x >= _size.x || cell.y >= _size.y) return false;
+        }
+        return true;
+    }
+
+    public bool isAreaFree(Vector2Int anchor, IReadOnlyList<Vector2Int> shape, Container ignore = null) {
+        if (!isInBounds(anchor, shape)) return false;
+
+        foreach (Vector2Int offset in shape) {
+            Vector2Int cell = anchor + offset;
+            Container occupant = _occupancy[cellIndex(cell.x, cell.y)];
+            if (occupant != null && occupant != ignore) return false;
+        }
+        return true;
+    }
+
+    // The Container occupying `cell`, or null for an empty or out-of-bounds cell.
+    public Container occupantAt(Vector2Int cell) {
+        if (cell.x < 0 || cell.y < 0 || cell.x >= _size.x || cell.y >= _size.y) return null;
+        return _occupancy[cellIndex(cell.x, cell.y)];
+    }
+
+    public void occupy(Container container) {
+        setArea(container.gridPosition, container.shape, container);
+    }
+
+    public void free(Container container) {
+        setArea(container.gridPosition, container.shape, null);
+    }
+
+    void setArea(Vector2Int anchor, IReadOnlyList<Vector2Int> shape, Container value) {
+        foreach (Vector2Int offset in shape) {
+            Vector2Int cell = anchor + offset;
+            _occupancy[cellIndex(cell.x, cell.y)] = value;
+        }
+    }
+
+    public Vector3 cellToLocalPosition(Vector2Int cell) {
+        return new Vector3(cell.x * _cellSize, cell.y * _cellSize, 0f);
+    }
+
+    // World-space center of a single board cell — where ExtractionGrid places an extraction point.
+    public Vector3 cellToWorldCenter(Vector2Int cell) {
+        return transform.TransformPoint(cellToLocalPosition(cell));
+    }
+
+    public Vector3 anchorToWorldCenter(Vector2Int anchor, IReadOnlyList<Vector2Int> shape) {
+        return transform.TransformPoint(cellToLocalPosition(anchor) + shapeCenterOffset(shape));
+    }
+
+    // Continuous (fractional) counterparts of anchorToWorldCenter, in cell units — no rounding and
+    // no clamping. Used only by Container's drag: the pointer position becomes a fractional anchor
+    // the grid position steps toward, and the visual glides between anchors. Occupancy and
+    // extraction never see fractional anchors.
+    public Vector2 worldToAnchorPoint(Vector3 worldPosition, IReadOnlyList<Vector2Int> shape) {
+        Vector3 local = transform.InverseTransformPoint(worldPosition) - shapeCenterOffset(shape);
+        return new Vector2(local.x / _cellSize, local.y / _cellSize);
+    }
+
+    public Vector3 anchorPointToWorldCenter(Vector2 anchor, IReadOnlyList<Vector2Int> shape) {
+        Vector3 local = new Vector3(anchor.x * _cellSize, anchor.y * _cellSize, 0f) + shapeCenterOffset(shape);
+        return transform.TransformPoint(local);
+    }
+
+    // Enumerates every in-bounds anchor position this shape could ever occupy and returns true if
+    // any of them satisfies isTargetPosition — deliberately IGNORING current occupancy (other
+    // Containers). Currently unused: the deadlock check that called it is off until Phase 3 (see
+    // Level.Update).
+    public bool hasAnyValidPosition(IReadOnlyList<Vector2Int> shape, Func<Vector2Int, bool> isTargetPosition) {
+        Vector2Int min = shapeMin(shape);
+        Vector2Int max = shapeMax(shape);
+
+        for (int x = -min.x; x <= _size.x - 1 - max.x; x++) {
+            for (int y = -min.y; y <= _size.y - 1 - max.y; y++) {
+                if (isTargetPosition(new Vector2Int(x, y))) return true;
+            }
+        }
+
+        return false;
+    }
+}

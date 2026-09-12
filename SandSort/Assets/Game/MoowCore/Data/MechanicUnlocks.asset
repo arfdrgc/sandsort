@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4425801c4ae8b4e69826fd0d3f4b8571, type: 3}
+  m_Name: MechanicUnlocks
+  m_EditorClassIdentifier: 
+  _mechanicUnlocks:
+  - _mechanicSprite: {fileID: 0}
+    _mechanicUnrevealedSprite: {fileID: 0}
+    _unlockLevelData: {fileID: 11400000, guid: cf6a022b595b440efaa8bece7e1b08c3, type: 2}
+    _unlockLevel: 1
+    _name: 
+    _unlockedTitle: 
+    _unlockedText: 
+  _levels: {fileID: 11400000, guid: 373b3dceb1ab3427d8a8553a1ce8380b, type: 2}

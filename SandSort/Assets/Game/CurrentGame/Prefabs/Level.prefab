@@ -1,0 +1,109 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7499459848732333489
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3500330111660482341}
+  - component: {fileID: 3500330111660482340}
+  - component: {fileID: 3500330111660482342}
+  m_Layer: 0
+  m_Name: Level
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3500330111660482341
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7499459848732333489}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3500330111660482340
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7499459848732333489}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b24778d5c374549ab521c26739d8080, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _sandTunables: {fileID: 3500330111660482342}
+  _gameplayTunables: {fileID: 11400000, guid: ceaeaffe84e0e4b26aa74e9c040efad6, type: 2}
+  _sandMaterial: {fileID: 2100000, guid: 8fa1ce54e3ae4ef5834ec554bd2f842f, type: 2}
+  _cubeMaterial: {fileID: 2100000, guid: 6f8b7101314b44a8a4ace3a13f618135, type: 2}
+  _sandPaletteColors: ab000000a1000000650000008d00000079000000
+  _containerColors:
+  - {fileID: 11400000, guid: 93fc9988f149432e9e28b4802fca98cd, type: 2}
+  - {fileID: 11400000, guid: 768e642e27d94195a549a408cb4ec216, type: 2}
+  - {fileID: 11400000, guid: c5fc9e32d89b41a2b06c25468b60b962, type: 2}
+  - {fileID: 11400000, guid: 5e3aa10952af44cca269cdaeffce5203, type: 2}
+  - {fileID: 11400000, guid: 7ea4b610df0945ad9798919b219ff453, type: 2}
+--- !u!114 &3500330111660482342
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7499459848732333489}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94511430b7b44d8ba0ca6c78a8c17e21, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cylinderHeight: 6
+  blockCellSize: 34
+  blockGridWidth: 10
+  blockGridHeight: 10
+  customPattern: {fileID: 0}
+  sandDensity: 40
+  sandColors:
+  - {r: 0.9411765, g: 0.92156863, b: 0.8627451, a: 1}
+  - {r: 0.9019608, g: 0.27450982, b: 0.27450982, a: 1}
+  - {r: 0.27450982, g: 0.50980395, b: 0.9019608, a: 1}
+  - {r: 0.8679245, g: 0.52596754, b: 0, a: 1}
+  - {r: 0.3529412, g: 0.78431374, b: 0.47058824, a: 1}
+  sandExtractionRate: 1600
+  maximumSandFlowRate: 400
+  maxCellsPerColumnPerTick: 6
+  extractionRangeY: 1.5
+  extractionNeighborPrimeRadius: 1
+  extractionCaveInLeftBias: 0.5
+  extractionPrimeMaxEmptyGap: 3
+  cubeVisualScale: 0.5
+  conveyorWidth: 5
+  conveyorHeight: 1.2
+  conveyorZOffset: 0
+  cubeCount: 5
+  cubeMovementSpeed: 0
+  particlesPerExtraction: 160
+  particleSize: 0.035
+  particleLifetime: 0.7
+  particleSpread: 0.04
+  particleGravity: 1
+  sandSimulationSpeed: 45
+  maxFallCellsPerTick: 2
+  fallSidewaysMixChance: 0.1
+  lateralSpreadChance: 1
+  pileStability: 0.28
+  minGapForFreeCascade: 2
+  settleJitterChance: 0.015
+  settleJitterWindowTicks: 3
+  colorNoiseAmount: 0.14
