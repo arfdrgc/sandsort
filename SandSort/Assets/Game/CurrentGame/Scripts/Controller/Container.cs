@@ -48,6 +48,10 @@ public class Container : MonoBehaviour {
     List<Vector2Int> _blockedCells = new();
 
     List<Vector2Int> _shape;
+    // The Shape prefab component on this same GameObject, when the level spawned one (legacy levels
+    // have none). Only used to push the fill readout at it — the footprint already arrived through
+    // ContainerData.occupiedCells.
+    Shape _shapeVisual;
     Vector2Int _gridPosition;
     // Gameplay feel knobs (drag + release snap). Read live rather than cached at initialize, so the
     // asset can be tuned in the Inspector while Play mode is running. Null-safe: a Level prefab with
@@ -106,11 +110,15 @@ public class Container : MonoBehaviour {
     // colorMaterial is the MoowCore Basic_Colors material for data.color (resolved by Level through
     // that color's ColorSO). fallbackColor — the sand's own palette color — is only used to tint a
     // default material if no ColorSO/material is set up for this color.
-    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, GameplayTunables tuning) {
+    // sandBottomWorldY is passed straight through to ExtractionGrid (a Container never uses it
+    // itself) — see ExtractionGrid's EXTRACTION BAND note for what it anchors.
+    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning) {
         _board = board;
         _tuning = tuning;
 
-        _shape = data.cells;
+        // Already rotated and normalized when the level named a Shape prefab — see
+        // ContainerData.occupiedCells. This list is the only footprint this class knows about.
+        _shape = data.occupiedCells;
         _gridPosition = data.position;
         _targetColor = data.color;
         _sandColorIndex = sandColorIndex;
@@ -119,12 +127,18 @@ public class Container : MonoBehaviour {
         _sealed = false;
         _awake = false;
 
+        _shapeVisual = GetComponent<Shape>();
+        // The cell's world size comes from the sand, so the prefab cannot know it — the Shape needs
+        // it to place its fill readout on the right cell corner (see Shape.placeFillAnchor).
+        if (_shapeVisual != null) _shapeVisual.setCellWorldSize(_board.cellSize);
+
         buildShapeVisuals(colorMaterial, fallbackColor);
         snapVisualToGridPosition();
+        refreshFillDisplay();
 
         _board.occupy(this);
 
-        gameObject.AddComponent<ExtractionGrid>().initialize(this, _board, sandExtraction, tuning);
+        gameObject.AddComponent<ExtractionGrid>().initialize(this, _board, sandExtraction, sandBottomWorldY, tuning);
     }
 
     void buildShapeVisuals(Material colorMaterial, Color fallbackColor) {
@@ -423,10 +437,18 @@ public class Container : MonoBehaviour {
         if (_sealed || amount <= 0) return;
 
         _filledUnits = Mathf.Min(_capacityUnits, _filledUnits + amount);
+        refreshFillDisplay();
 
         if (_filledUnits >= _capacityUnits) {
             seal();
         }
+    }
+
+    // Pushes this Container's own fill at the Shape's readout. fillLevel is filledUnits /
+    // capacityUnits — the figure the extraction and the area-weighted capacity split already
+    // produce, so the percentage on the piece is not a separate calculation.
+    void refreshFillDisplay() {
+        if (_shapeVisual != null) _shapeVisual.setFillPercent(fillLevel);
     }
 
     // Depletion-tolerance safeguard (see Level.applyDepletionGuarantee): when this Container's
@@ -437,6 +459,7 @@ public class Container : MonoBehaviour {
         if (_sealed) return;
 
         _filledUnits = _capacityUnits;
+        refreshFillDisplay();
         seal();
     }
 

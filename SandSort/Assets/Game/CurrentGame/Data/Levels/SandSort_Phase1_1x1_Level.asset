@@ -21,22 +21,32 @@ MonoBehaviour:
   _boardSize: {x: 5, y: 5}
   _containers:
   - position: {x: 3, y: 4}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 161
   - position: {x: 1, y: 3}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 101
   - position: {x: 4, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 141
   - position: {x: 0, y: 1}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 121
   - position: {x: 2, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 171

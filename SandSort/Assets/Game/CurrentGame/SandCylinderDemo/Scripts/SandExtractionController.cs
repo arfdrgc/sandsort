@@ -367,12 +367,21 @@ public class SandExtractionController : MonoBehaviour {
             float rightWorldX = cylinderCenterWorld.x + cylinderDiameter * 0.5f;
             float lineZ = cylinderCenterWorld.z - 0.1f; // just in front of the sand quad so it isn't depth-occluded
 
-            // Cyan: the real world-space Y the cube's vertical
-            // extractionRangeY actually reaches up to (conveyorY +
-            // extractionRangeY — see VerticalRowRange). Everything at or
-            // below this line is vertically reachable; nothing above it
-            // ever is, however tall the remaining sand pile still is.
-            float extractionReachY = conveyorY + Mathf.Max(0f, tunables.extractionRangeY);
+            // Cyan: the real world-space Y that extractionRangeY actually reaches up to. It is
+            // ALWAYS <collector Y> + extractionRangeY (VerticalRowRange is one-sided from whatever Y
+            // the collector sits at) — but which Y that is depends on who the collector is, so the
+            // line has to follow the same split:
+            //  - conveyor path (Init): the collectors are the cubes, all riding at conveyorY.
+            //  - external-collector path (InitWithoutConveyor): there are no cubes and conveyorY is
+            //    never used by anything; the caller passes its own point to ExtractAtPoint. The
+            //    SandSort board hands it the sand's bottom edge (cylinderCenterWorld.y), so that is
+            //    the reference here.
+            // Drawing conveyorY on the external path was wrong and silently so: it only matched
+            // while SandSort's board happened to sit exactly at conveyorY, and once the board became
+            // tunable the line stayed put while the real ceiling moved (measured 2026-09-12: line
+            // -2.70 vs cells actually removed up to -1.4875, a 1.2125 error).
+            float extractionReferenceY = externalCollectorsOnly ? cylinderCenterWorld.y : conveyorY;
+            float extractionReachY = extractionReferenceY + Mathf.Max(0f, tunables.extractionRangeY);
             Gizmos.color = Color.cyan;
             Gizmos.DrawLine(new Vector3(leftWorldX, extractionReachY, lineZ), new Vector3(rightWorldX, extractionReachY, lineZ));
 

@@ -83,7 +83,7 @@ MonoBehaviour:
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
   maxCellsPerColumnPerTick: 6
-  extractionRangeY: 1.5
+  extractionRangeY: 0.3
   extractionNeighborPrimeRadius: 1
   extractionCaveInLeftBias: 0.5
   extractionPrimeMaxEmptyGap: 3

@@ -45,6 +45,11 @@ public class Level : MonoBehaviour, ILevel {
 
     SandCylinderSandGrid _sandGrid;
     SandExtractionController _sandExtraction;
+    // The sand area's bottom edge in WORLD space — the exact Vector3 handed to
+    // SandExtractionController.InitWithoutConveyor, i.e. the anchor its own WorldYToGridRow /
+    // GridCellToWorld treat as sand row 0. Kept so ExtractionGrid can anchor its vertical extraction
+    // band to the sand instead of to the board; see ExtractionGrid's EXTRACTION BAND note.
+    Vector3 _sandAreaBottomWorld;
     Board _board;
     readonly List<Container> _containers = new();
 
@@ -110,8 +115,8 @@ public class Level : MonoBehaviour, ILevel {
         controllerObject.transform.SetParent(transform, false);
         _sandExtraction = controllerObject.AddComponent<SandExtractionController>();
 
-        Vector3 sandAreaBottomWorld = transform.position + Vector3.down * (_sandTunables.cylinderHeight * 0.5f);
-        _sandExtraction.InitWithoutConveyor(_sandGrid, sandAreaBottomWorld, _sandTunables.SandAreaWorldWidth, _cubeMaterial);
+        _sandAreaBottomWorld = transform.position + Vector3.down * (_sandTunables.cylinderHeight * 0.5f);
+        _sandExtraction.InitWithoutConveyor(_sandGrid, _sandAreaBottomWorld, _sandTunables.SandAreaWorldWidth, _cubeMaterial);
     }
 
     // Identical to SandCylinderDemoBootstrap.BuildSandQuad.
@@ -129,20 +134,42 @@ public class Level : MonoBehaviour, ILevel {
         return quad;
     }
 
-    // The Board is placed from the sand area's geometry so that the demo's own world<->grid
-    // conversions (SandExtractionController's WorldXToGridColumn / VerticalRowRange) see a top-row
-    // cell exactly where they used to see a conveyor cube:
+    // The Board is placed from the sand area's geometry, in the board's own unit (cellSize), so that
+    // the demo's own world<->grid conversions (SandExtractionController's WorldXToGridColumn /
+    // VerticalRowRange) still resolve a top-row cell against the sand's bottom band:
     //  - cell size = CubeWorldSize (one sand block's world width) and the board's left edge = the
     //    sand quad's left edge, so column c's center X falls inside sand block c;
-    //  - top row center Y = sand bottom - conveyorHeight (the demo's conveyor Y), so a top-row
-    //    cell reaches the same bottom band of sand (extractionRangeY above it) the demo cube did.
-    // The resulting gap between the board's top edge and the sand (conveyorHeight - cellSize / 2)
-    // is the demo's geometry, deliberately left unchanged until extraction is verified against it.
+    //  - top row center Y = sand bottom - (gridSandGapCells + 0.5) * cellSize, so the GAP between the
+    //    board's top edge and the sand is exactly gridSandGapCells cells. The extra half cell is the
+    //    conversion from the board's top EDGE to the top row's CENTER, which is what this variable
+    //    holds: at the default 0.5 that comes to sand bottom - one full cell, i.e. a half-cell gap.
+    //
+    // This used to be sand bottom - conveyorHeight (the demo's conveyor Y), which pinned the board to
+    // a SAND-side number: conveyorHeight is the clearance the demo needs so its cubes can travel
+    // UNDER the sand, not a gameplay distance. It left a gap of conveyorHeight - cellSize / 2
+    // (0.775 world units at 1.2 / 0.85) — nearly a full cell of dead space — and made the board move
+    // whenever conveyor geometry was retuned. Measuring the gap in CELLS instead keeps board and sand
+    // on the same scale (the cell's world size still comes from the sand) while letting the gap be
+    // tuned as the gameplay/layout value it actually is (2026-09-12).
+    //
+    // Extraction does NOT depend on this any more (2026-09-12). It briefly did: because
+    // VerticalRowRange is one-sided — it reaches from the Y it is handed up to extractionRangeY above
+    // it — feeding it the top row's own Y spent part of that range crossing this cosmetic gap, so
+    // shrinking the gap pushed the reachable band further up into the sand (13 -> 27 -> 38 rows as
+    // gridSandGapCells went 0.9 -> 0.5 -> 0.15). ExtractionGrid now hands ExtractAtPoint the SAND's
+    // bottom edge as the Y instead (X still comes from the cell), so the band is a fixed
+    // [sandBottomY, sandBottomY + extractionRangeY] slice no matter where the board sits. See
+    // ExtractionGrid's EXTRACTION BAND note. Consequently gridSandGapCells is a purely visual knob
+    // and has no extraction invariant to respect — the Inspector's 1-cell cap is now only about
+    // keeping the board from drifting absurdly far from the sand.
     void buildBoard(SandLevelSO sandLevel) {
         float cellSize = _sandTunables.CubeWorldSize;
         float sandBottomY = -_sandTunables.cylinderHeight * 0.5f;
         float sandLeftX = -_sandTunables.SandAreaWorldWidth * 0.5f;
-        float topRowCenterY = sandBottomY - _sandTunables.conveyorHeight;
+        float gapCells = _gameplayTunables != null
+            ? _gameplayTunables.gridSandGapCells
+            : GameplayTunables.DEFAULT_GRID_SAND_GAP_CELLS;
+        float topRowCenterY = sandBottomY - (gapCells + 0.5f) * cellSize;
 
         GameObject boardObject = new GameObject("Board");
         boardObject.transform.SetParent(transform, false);
@@ -223,14 +250,14 @@ public class Level : MonoBehaviour, ILevel {
             List<ContainerData> group = pair.Value;
             int totalCells = _sandGrid.GetColorCount(sandColorIndexOf(pair.Key));
             int totalAreaUnits = 0;
-            foreach (ContainerData data in group) totalAreaUnits += data.cells.Count;
+            foreach (ContainerData data in group) totalAreaUnits += data.occupiedCells.Count;
 
             int[] floorShares = new int[group.Count];
             float[] fractions = new float[group.Count];
             int assigned = 0;
 
             for (int i = 0; i < group.Count; i++) {
-                float exactShare = totalAreaUnits > 0 ? (float)totalCells * group[i].cells.Count / totalAreaUnits : 0f;
+                float exactShare = totalAreaUnits > 0 ? (float)totalCells * group[i].occupiedCells.Count / totalAreaUnits : 0f;
                 floorShares[i] = Mathf.FloorToInt(exactShare);
                 fractions[i] = exactShare - floorShares[i];
                 assigned += floorShares[i];
@@ -261,12 +288,34 @@ public class Level : MonoBehaviour, ILevel {
                 ? _sandTunables.sandColors[sandColorIndex - 1]
                 : Color.magenta;
 
-            // Plain empty GameObject, not CreatePrimitive: Container builds one child cube per
-            // occupied shape cell itself (see Container.buildShapeVisuals) so multi-cell shapes
-            // (2x1, L, T, ...) render correctly — a primitive root would add an extra untouched
-            // default cube on top of those.
-            GameObject containerObject = new GameObject($"Container_{data.color}");
-            containerObject.transform.SetParent(_board.transform, false);
+            // With a Shape prefab (Prefabs/Shapes/Shape_L4.prefab, ...) the piece is that prefab
+            // instantiated and turned to the level's rotation — one canonical asset covers all four
+            // orientations, see Shape.cs. applyRotation runs BEFORE Container.initialize so the
+            // Container reads an already-rotated footprint, and it only turns the decorative half
+            // (VisualRoot/FBX_Placeholder) and the FillUIAnchor; the root stays unrotated because
+            // Container places its own per-cell visuals from the rotated cell data.
+            //
+            // Without one (the pre-Shape levels) it stays a plain empty GameObject, NOT a
+            // CreatePrimitive: Container builds one child cube per occupied shape cell itself (see
+            // Container.buildShapeVisuals) so multi-cell shapes render correctly — a primitive root
+            // would add an extra untouched default cube on top of those.
+            // Loud on purpose: this entry asked for a Shape and the prefab is gone, so the line
+            // below is about to build the legacy `cells` footprint instead — an L4 turning into a
+            // 1x1 with the level still "working". See ContainerData.hasMissingShapeReference.
+            if (data.hasMissingShapeReference) {
+                Debug.LogError($"[Level::buildContainers] {data.color} container at {data.position} points at a MISSING Shape prefab — building its legacy `cells` footprint ({data.cells.Count} cell(s)) instead. Reassign the Shape prefab.");
+            }
+
+            GameObject containerObject;
+            if (data.shape != null) {
+                Shape shape = Instantiate(data.shape, _board.transform, false);
+                shape.applyRotation(data.rotation);
+                shape.name = $"Container_{data.color}_{data.shape.type}_{data.rotation}";
+                containerObject = shape.gameObject;
+            } else {
+                containerObject = new GameObject($"Container_{data.color}");
+                containerObject.transform.SetParent(_board.transform, false);
+            }
 
             Material colorMaterial = containerMaterialOf(data.color);
             if (colorMaterial == null) {
@@ -274,7 +323,7 @@ public class Level : MonoBehaviour, ILevel {
             }
 
             Container container = containerObject.AddComponent<Container>();
-            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _gameplayTunables);
+            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _sandAreaBottomWorld.y, _gameplayTunables);
             _containers.Add(container);
         }
     }

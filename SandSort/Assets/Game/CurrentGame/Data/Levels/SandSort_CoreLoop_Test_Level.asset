@@ -18,66 +18,67 @@ MonoBehaviour:
   _expandBottom: 0
   _centerFactor: 0
   _colorPalette: {fileID: 0}
-  _boardSize: {x: 5, y: 5}
+  _boardSize: {x: 10, y: 15}
   _containers:
-  - position: {x: 0, y: 0}
+  - position: {x: 0, y: 12}
+    shape: {fileID: 3508780417519441240, guid: 0e20915d70bed43689370d3152a444cc, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 101
-  - position: {x: 2, y: 0}
+    color: 121
+  - position: {x: 3, y: 12}
+    shape: {fileID: 3508780417519441240, guid: 0e20915d70bed43689370d3152a444cc, type: 3}
+    rotation: 1
     cells:
     - {x: 0, y: 0}
-    - {x: 1, y: 0}
-    color: 101
-  - position: {x: 4, y: 0}
+    color: 121
+  - position: {x: 0, y: 10}
+    shape: {fileID: 4971453937965233258, guid: 19635dd25665241ceb3dc1763d2ce1d0, type: 3}
+    rotation: 1
     cells:
     - {x: 0, y: 0}
     color: 161
-  - position: {x: 2, y: 2}
+  - position: {x: 3, y: 9}
+    shape: {fileID: 4971453937965233258, guid: 19635dd25665241ceb3dc1763d2ce1d0, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    - {x: 1, y: 0}
-    - {x: 0, y: 1}
-    - {x: 0, y: 2}
-    color: 121
-  - position: {x: 4, y: 3}
-    cells:
-    - {x: 0, y: 0}
-    color: 181
-  - position: {x: 4, y: 4}
+    color: 161
+  - position: {x: 0, y: 6}
+    shape: {fileID: 4235498481140829280, guid: f7b72a06ccd5f44dd92ab63c53b006b0, type: 3}
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 101
-  _sandCanvas:
-    _columns:
-    - cells:
-      - 101
-      - 101
-      - 101
-      - 101
-      - 101
-    - cells:
-      - 101
-      - 101
-      - 101
-      - 101
-      - 161
-    - cells:
-      - 161
-      - 161
-      - 161
-      - 161
-      - 161
-    - cells:
-      - 121
-      - 121
-      - 121
-      - 121
-      - 121
-    - cells:
-      - 181
-      - 181
-      - 181
-      - 181
-      - 181
+  - position: {x: 3, y: 6}
+    shape: {fileID: 4235498481140829280, guid: f7b72a06ccd5f44dd92ab63c53b006b0, type: 3}
+    rotation: 1
+    cells:
+    - {x: 0, y: 0}
+    color: 101
+  - position: {x: 0, y: 4}
+    shape: {fileID: 5273368748599071861, guid: 9aa0b7d6e816c428c8ad33cab94d1af9, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 141
+  - position: {x: 3, y: 3}
+    shape: {fileID: 5273368748599071861, guid: 9aa0b7d6e816c428c8ad33cab94d1af9, type: 3}
+    rotation: 1
+    cells:
+    - {x: 0, y: 0}
+    color: 141
+  - position: {x: 0, y: 0}
+    shape: {fileID: 7608668614613924003, guid: 555adf220a0c54e0894b20c1aad2ead8, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 171
+  - position: {x: 3, y: 0}
+    shape: {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 171
+  _sandPattern: {fileID: 11400000, guid: 65ee15787bbec454cb3741f942d75451, type: 2}
   _timerSeconds: 120

@@ -79,6 +79,16 @@ public class SandLevelSO : LevelSO {
             issues.Add($"Sand pattern color slot {slot} has no ItemColor mapping on the Level prefab.");
         }
 
+        // A Shape reference that has gone missing, NOT an empty one: an empty one is a legitimate
+        // legacy entry that authors its footprint in `cells`, while a broken one silently collapses
+        // to that same `cells` list and quietly changes the piece's shape. See
+        // ContainerData.hasMissingShapeReference. Deliberately the only footprint check here — board
+        // bounds, overlap and rotated-footprint validation are a separate level-authoring task.
+        for (int i = 0; i < _containers.Count; i++) {
+            if (!_containers[i].hasMissingShapeReference) continue;
+            issues.Add($"Container {i} ({_containers[i].color} at {_containers[i].position}) points at a Shape prefab that is missing — it will fall back to its legacy `cells` footprint ({_containers[i].cells.Count} cell(s)), which is almost certainly not the shape this level means.");
+        }
+
         HashSet<ColorSO.ItemColor> containerColors = new();
         foreach (ContainerData data in _containers) containerColors.Add(data.color);
 
@@ -102,15 +112,72 @@ public class SandLevelSO : LevelSO {
     }
 }
 
+// What a level says about one piece (2026-09-12): Shape + Position + Rotation + Color. The shape is
+// the CANONICAL prefab — Prefabs/Shapes/Shape_L4.prefab, never a per-orientation variant — and the
+// rotation is applied to the instance, so "L4 at (3,5) rotated 90" and "L4 at (6,2) rotated 180" are
+// the same asset twice. See Shape.cs.
 [System.Serializable]
 public class ContainerData {
-    // Anchor cell of the shape, in board grid space. cells[i] offsets are relative to this.
+    // Anchor cell of the shape, in board grid space. Every occupied cell offset is relative to this.
     public Vector2Int position;
-    // Shape: occupied cells relative to position. {(0,0)} = 1x1. {(0,0),(1,0)} = 2x1.
-    // areaUnits (used by the capacity model) is simply cells.Count.
+    // The canonical shape prefab. Leave it empty to author a one-off footprint in `cells` instead —
+    // that is what the pre-Shape levels do and they keep working unchanged.
+    public Shape shape;
+    // Right angles only. Ignored when `shape` is empty (a hand-authored `cells` list is taken as-is).
+    public ShapeRotation rotation = ShapeRotation.Deg0;
+    // Legacy / one-off footprint: occupied cells relative to position. {(0,0)} = 1x1.
+    // {(0,0),(1,0)} = 2x1. Only read when `shape` is empty. NOT authoritative once a Shape is
+    // assigned — it is left in place only until every level has been migrated and we have confirmed
+    // nothing else authors footprints this way.
     public List<Vector2Int> cells = new() { Vector2Int.zero };
     public ColorSO.ItemColor color;
     // No capacityUnits field here anymore — capacity is computed at build time, see class header.
+
+    // Resolved footprint, cached per entry. NOT serialized and NOT authoritative: it is rebuilt from
+    // shape + rotation (or from the legacy cells) whenever either of those changes, so editing the
+    // rotation in the Inspector between Play runs can never serve a stale list. A domain reload
+    // simply clears it and the next read recomputes.
+    [System.NonSerialized] List<Vector2Int> _resolvedCells;
+    [System.NonSerialized] Shape _resolvedShape;
+    [System.NonSerialized] ShapeRotation _resolvedRotation;
+    // Which branch produced _resolvedCells. Needed on its own because _resolvedShape can no longer
+    // be told apart from `shape` once the prefab is destroyed mid-session: both sides are then the
+    // same fake-null wrapper and `!=` (Unity's operator) calls them equal, which would keep serving
+    // the footprint of an asset that is already gone.
+    [System.NonSerialized] bool _resolvedFromShape;
+
+    // The footprint this piece actually occupies, and the single source everything gameplay-side
+    // uses: Board occupancy, the drag/collision sweep, the extraction footprint, and areaUnits in
+    // the capacity model. Never a mesh or a renderer bounds.
+    //
+    // The legacy branch hands back a COPY, never the serialized list itself: that list lives inside
+    // the level ScriptableObject, and in the Editor a runtime mutation of it would be written back
+    // into the asset on disk. Nothing mutates it today; the copy makes sure nothing ever can.
+    public List<Vector2Int> occupiedCells {
+        get {
+            bool useShape = shape != null;
+            if (_resolvedCells == null || _resolvedFromShape != useShape || _resolvedShape != shape || _resolvedRotation != rotation) {
+                _resolvedCells = useShape
+                    ? Shape.rotatedCells(shape.canonicalCells, rotation)
+                    : new List<Vector2Int>(cells);
+                _resolvedShape = shape;
+                _resolvedRotation = rotation;
+                _resolvedFromShape = useShape;
+            }
+            return _resolvedCells;
+        }
+    }
+
+    // A Shape WAS assigned here and its prefab has since gone missing. Unity hands a destroyed or
+    // unresolvable object reference back as a "fake null" — a live managed wrapper whose native
+    // object is gone — so `shape == null` is true for it just as it is for a field that was never
+    // filled in. ReferenceEquals bypasses that operator and tells the two apart: a genuinely empty
+    // field is a real null reference, a broken one is not.
+    //
+    // This matters because the two take the SAME code path above: without the distinction, a level
+    // that means "L4 here" silently builds a 1x1 (the default `cells`) the moment the prefab is
+    // moved or deleted. See SandLevelSO.validateLevel and Level.buildContainers, which report it.
+    public bool hasMissingShapeReference => shape == null && !ReferenceEquals(shape, null);
 }
 
 // Retired: SandLevelSO no longer holds per-column sand data (the sand is now SandCylinderSandGrid,

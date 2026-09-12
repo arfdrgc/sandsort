@@ -21,6 +21,7 @@ public class GameplayTunables : ScriptableObject {
     // change how the game feels. Kept here rather than in the gameplay classes so each number has a
     // single home.
     public const float DEFAULT_EXTRACTION_ARRIVAL_TOLERANCE_CELLS = 0.035f;
+    public const float DEFAULT_GRID_SAND_GAP_CELLS = 0.5f;
     public const float DEFAULT_DRAG_FOLLOW_SHARPNESS = 30f;
     public const float DEFAULT_DRAG_MAX_SPEED_CELLS = 40f;
     public const float DEFAULT_RELEASE_SNAP_SHARPNESS = 22f;
@@ -51,4 +52,10 @@ public class GameplayTunables : ScriptableObject {
     [Range(0f, 0.25f)]
     [SerializeField] float _extractionArrivalToleranceCells = DEFAULT_EXTRACTION_ARRIVAL_TOLERANCE_CELLS;
     public float extractionArrivalToleranceCells => _extractionArrivalToleranceCells;
+
+    [Header("Board Placement")]
+    [Tooltip("Empty space between the board's top edge and the sand area's bottom edge, measured in CELLS: 0.5 = half a cell, 0.25 = a quarter, 0 = the board's top edge sits flush against the sand. The cell's world size still comes from the sand (SandCylinderTunables.CubeWorldSize), so this stays a pure gameplay/layout knob and board and sand can never drift out of scale. Read by Level.buildBoard at level build time only — changing it during Play does nothing until the level is rebuilt. PURELY VISUAL: extraction does not depend on it. ExtractionGrid anchors its vertical extraction band to the sand's own bottom edge, so the sand a shape can reach is the same at every gap — see ExtractionGrid's EXTRACTION BAND note. The 1-cell cap is just to keep the board from drifting absurdly far from the sand.")]
+    [Range(0f, 1f)]
+    [SerializeField] float _gridSandGapCells = DEFAULT_GRID_SAND_GAP_CELLS;
+    public float gridSandGapCells => _gridSandGapCells;
 }
