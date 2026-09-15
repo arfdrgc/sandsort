@@ -56,6 +56,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: c5fc9e32d89b41a2b06c25468b60b962, type: 2}
   - {fileID: 11400000, guid: 5e3aa10952af44cca269cdaeffce5203, type: 2}
   - {fileID: 11400000, guid: 7ea4b610df0945ad9798919b219ff453, type: 2}
+  _frameEdgePrefab: {fileID: 919132149155446097, guid: d60c5efcc765b41aca138b89f48b529f, type: 3}
+  _frameCornerPrefab: {fileID: 919132149155446097, guid: 0be7f4a3079ee48289a90d46537d69cf, type: 3}
+  _frameTJunctionPrefab: {fileID: 919132149155446097, guid: c12863d032d644b54b24889cd9fe31e7, type: 3}
 --- !u!114 &3500330111660482342
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -75,15 +78,15 @@ MonoBehaviour:
   customPattern: {fileID: 0}
   sandDensity: 40
   sandColors:
-  - {r: 0.9411765, g: 0.92156863, b: 0.8627451, a: 1}
-  - {r: 0.9019608, g: 0.27450982, b: 0.27450982, a: 1}
-  - {r: 0.27450982, g: 0.50980395, b: 0.9019608, a: 1}
-  - {r: 0.8679245, g: 0.52596754, b: 0, a: 1}
-  - {r: 0.3529412, g: 0.78431374, b: 0.47058824, a: 1}
+  - {r: 0.9804, g: 0.9529, b: 0.8863, a: 1}
+  - {r: 0.8784, g: 0.251, b: 0.1804, a: 1}
+  - {r: 0.1647, g: 0.3333, b: 0.9333, a: 1}
+  - {r: 0.9412, g: 0.502, b: 0.1176, a: 1}
+  - {r: 0.3216, g: 0.851, b: 0.2353, a: 1}
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
   maxCellsPerColumnPerTick: 6
-  extractionRangeY: 0.3
+  extractionRangeY: 0.4
   extractionNeighborPrimeRadius: 1
   extractionCaveInLeftBias: 0.5
   extractionPrimeMaxEmptyGap: 3
@@ -94,12 +97,12 @@ MonoBehaviour:
   cubeCount: 5
   cubeMovementSpeed: 0
   particlesPerExtraction: 160
-  particleSize: 0.035
-  particleLifetime: 0.7
-  particleSpread: 0.04
+  particleSize: 0.0336
+  particleLifetime: 1
+  particleSpread: 0.15
   particleGravity: 1
   sandSimulationSpeed: 45
-  maxFallCellsPerTick: 2
+  maxFallCellsPerTick: 6
   fallSidewaysMixChance: 0.1
   lateralSpreadChance: 1
   pileStability: 0.28

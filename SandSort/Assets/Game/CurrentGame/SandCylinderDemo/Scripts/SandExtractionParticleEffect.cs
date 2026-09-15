@@ -37,6 +37,26 @@ public class SandExtractionParticleEffect : MonoBehaviour {
     // on our side.
     const int MaxGrainsPerColor = 256;
 
+    // DEPTH OF THE POUR, followTarget path only (2026-09-13) — i.e. the Sand Idea game's shapes; the
+    // demo conveyor keeps its own behaviour untouched.
+    //
+    // Measured: the sand quad the grains leave sits at z = 0, and a Container's cells (cellVisual,
+    // the target handed in here) also sit at z = 0 — which is the BACK plane of the shape's FBX,
+    // whose visible front face is 0.5 nearer the camera at z = -0.5. So a grain aimed straight at
+    // cellVisual flies to 0.5 BEHIND the face the player is looking at and is occluded by the piece's
+    // own rim on the way in: it reads as the sand passing THROUGH the shape.
+    //
+    // Both ends of the flight are therefore pushed toward the camera (world -Z: the project's
+    // convention is gameplay plane XY, thickness Z, camera at -Z). The grain leaves the sand just
+    // clear of the sand quad, and lands just clear of the front face, so the whole pour happens in
+    // front of everything it passes over.
+    // ONE plane for the whole flight, not a slide from one depth to another. Offsetting only the
+    // landing was not enough: the grain then crosses Z gradually and is still behind the front face
+    // for most of the fall, so it disappears into the piece for the last stretch — measured 41 of 47
+    // live grains behind the face. Spawning on the same plane it lands on makes velocity.z zero and
+    // keeps every grain in front of the shape from the moment it leaves the sand.
+    const float FollowPourForwardOffset = 0.56f;
+
     SandCylinderTunables tunables;
     ParticleSystem[] systemsByColor; // index 0 unused (EMPTY)
     Vector3 receivingOffset;
@@ -149,6 +169,7 @@ public class SandExtractionParticleEffect : MonoBehaviour {
             Random.Range(-spread, spread),
             Random.Range(-spread, spread),
             Random.Range(-spread, spread) * 0.3f);
+        if (followTarget) source.z -= FollowPourForwardOffset;
 
         Vector3 cubePos = targetCube.position;
         // A followed target already tracked this frame is aimed at where LateUpdate last saw it, so
@@ -157,6 +178,7 @@ public class SandExtractionParticleEffect : MonoBehaviour {
             cubePos = trackedPos;
         }
         Vector3 cubeTargetY = cubePos + receivingOffset;
+        if (followTarget) cubeTargetY.z -= FollowPourForwardOffset;
 
         // Vertical and horizontal motion are solved independently, on
         // purpose: a single "arrive exactly at the target after flightTime"
@@ -190,8 +212,12 @@ public class SandExtractionParticleEffect : MonoBehaviour {
 
         float landingScatter = tunables.particleSpread * 3f;
         float predictedCubeX = cubePos.x + (followTarget ? 0f : tunables.cubeMovementSpeed * flightTime);
+        // Scatter stays on X for a followed target: scattering the LANDING in Z as well would put a
+        // share of the grains back behind the front face the offset above just cleared, and they
+        // would vanish into the piece again. The pour is a plane in front of the shape, not a cloud.
+        float landingScatterZ = followTarget ? 0f : landingScatter;
         Vector3 target = new Vector3(predictedCubeX, cubeTargetY.y, cubeTargetY.z)
-            + new Vector3(Random.Range(-landingScatter, landingScatter), 0f, Random.Range(-landingScatter, landingScatter));
+            + new Vector3(Random.Range(-landingScatter, landingScatter), 0f, Random.Range(-landingScatterZ, landingScatterZ));
 
         Vector3 velocity = new Vector3(
             (target.x - source.x) / flightTime,

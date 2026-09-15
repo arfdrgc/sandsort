@@ -17,4 +17,4 @@ MonoBehaviour:
   _releaseSnapSharpness: 22
   _releaseSnapMinSpeedCells: 4
   _extractionArrivalToleranceCells: 0.035
-  _gridSandGapCells: 0.15
+  _gridSandGapCells: 0.22352941

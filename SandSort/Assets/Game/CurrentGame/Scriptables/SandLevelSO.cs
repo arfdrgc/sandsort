@@ -9,8 +9,10 @@ using UnityEngine;
 //
 // SAND (revised 2026-09-11): the sand is SandCylinderDemo's approved SandCylinderSandGrid, reused
 // as-is. A level only supplies its starting picture — a SandCylinderPatternData painted with that
-// demo's own pattern editor. The pattern's width (in blocks) must equal boardSize.x, because each
-// board column sits under exactly one sand block (see Level.buildBoard).
+// demo's own pattern editor. Its authored width (in blocks) does NOT have to match boardSize.x:
+// Level.fitSandAreaToBoard scales the picture uniformly to boardSize.x blocks on load (a runtime
+// clone — the asset is never written), so "each board column sits under exactly one sand block"
+// (see Level.buildBoard) holds by construction whatever the pattern was painted at.
 //
 // EXTRACTION RULE (2026-09-11): a Container only pulls sand through cells sitting in the Board's
 // top row — the row closest to the sand. The pulling itself is the demo's own extraction. See
@@ -44,10 +46,10 @@ public class SandLevelSO : LevelSO {
 
     // Pure-data sanity check (no runtime GameObjects needed). paletteColors[i] is the gameplay
     // ItemColor of pattern color slot i + 1 (see Level._sandPaletteColors). Flags: a missing
-    // pattern, a pattern whose width doesn't match the board, pattern slots with no ItemColor
-    // mapping, sand colors with no matching Container (that sand can never be collected), and
-    // Container colors with no matching sand (auto-complete immediately at runtime — see
-    // Container.forceComplete()). None are fatal; all are worth flagging.
+    // pattern, pattern slots with no ItemColor mapping, sand colors with no matching Container
+    // (that sand can never be collected), and Container colors with no matching sand
+    // (auto-complete immediately at runtime — see Container.forceComplete()). None are fatal;
+    // all are worth flagging.
     public bool validateLevel(IReadOnlyList<ColorSO.ItemColor> paletteColors, out string message) {
         if (_sandPattern == null) {
             message = "No sand pattern assigned.";
@@ -56,9 +58,9 @@ public class SandLevelSO : LevelSO {
 
         List<string> issues = new();
 
-        if (_sandPattern.width != _boardSize.x) {
-            issues.Add($"Sand pattern is {_sandPattern.width} block(s) wide but the board has {_boardSize.x} column(s) — each board column must sit under exactly one sand block.");
-        }
+        // No pattern-width check here anymore (2026-09-13): Level.fitSandAreaToBoard scales the
+        // pattern to boardSize.x blocks on load, so "one board column per sand block" is guaranteed
+        // by construction and a width difference is just the scale factor, not an authoring error.
 
         HashSet<ColorSO.ItemColor> sandColors = new();
         HashSet<byte> unmappedSlots = new();

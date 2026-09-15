@@ -37,21 +37,74 @@ using UnityEngine;
 // symmetric on the way out). Extraction now works from the shape's DRAWN position
 // (Container.visualAnchor) instead:
 //  - The footprint is NOT the shape's bounding box. It is the union of the 1x1 cell footprints of
-//    the cells that are actually occupied at the extraction level — so a U drains from its two top
-//    cells and never from the gap between them, and a vertical L drains from its single top cell,
-//    not from the 2-wide box around it.
-//  - Each such cell spans [center - 0.5, center + 0.5] cells in X and therefore overlaps at most two
-//    board columns; a column is a candidate as soon as that overlap is positive, i.e. from the first
-//    frame the drawn cell touches it.
+//    the shape's TOP-PROFILE cells — one real occupied cell per column the shape occupies, see TOP
+//    PROFILE below — so nothing is ever drained through a column the shape does not occupy.
+//  - Each such cell spans exactly [center - 0.5, center + 0.5] cells in X and therefore overlaps at
+//    most two board columns; a column is a candidate as soon as that overlap is positive, i.e. from
+//    the first frame the drawn cell touches it.
+//
+// TOP PROFILE (2026-09-14): a shape's extraction points are its SKYLINE — for every column the
+// shape occupies, the TOPMOST occupied cell of that column is one extraction point. The points come
+// straight out of Container.shape, which is already rotated and normalized (ContainerData
+// .occupiedCells / Shape.rotatedCells), so every rotation of every shape gets its own correct
+// profile for free and there is no per-shape or per-rotation table anywhere.
+//
+// Before this the points were the cells sitting in the board's top ROW, which made a shape's reach
+// narrower than the shape itself whenever its top row was narrower than its silhouette. The worked
+// case is Shape_L4 — cells (0,0) (1,0) (0,1) (0,2), a 1-1-2 vertical L:
+//
+//     #        column 0: topmost cell (0,2) -> extraction point
+//     #        column 1: topmost cell (1,0) -> extraction point (this is the new one)
+//     ##
+//
+// Its top row is one cell wide, so it used to produce ONE point, in the left column: pushed flush
+// against the board's right edge its box covered the last two sand blocks, but the right one was
+// unreachable no matter where the player put the piece. The profile gives it the second point its
+// own occupancy already justifies. Shapes whose top row already spans every column (an upright I, O,
+// T, S or Z) are completely unaffected — their profile IS their top row.
+//
+// A profile cell lying lower in the shape extracts exactly like a top-row one, because the point's
+// own Y is never used: the band is anchored to the sand (see EXTRACTION BAND) and the point only
+// names a COLUMN. The gate is therefore asked of the shape rather than of each cell — the shape
+// extracts while its TOPMOST row is the board's top row, which is the same condition every cell that
+// used to pass it was tested against.
+//
+// What this does NOT change:
+//  - The scan distance per point. A point still covers exactly its own cell, [center - 0.5,
+//    center + 0.5]; there is no widening of any kind (a 0.25 reach extension was tried on
+//    2026-09-14 and removed — it could only reach a neighbouring block by draining all of it).
+//  - It is horizontal only: the Y gates, the band, and the sand-anchored Y are untouched.
+//  - addCandidate still rejects columns outside the board, so this cannot reach past the edge.
 //  - Board column c and sand block c are the same world-space X span (Level.buildBoard sizes cells
 //    to SandCylinderTunables.CubeWorldSize), so "board column" and "sand block" are interchangeable
 //    here and ExtractAtPoint is given the CANDIDATE COLUMN's center, not the shape cell's own X.
 //
+// EDGE-GATED EXTRAS (2026-09-14): a profile point that sits IN the shape's top row is a normal
+// point and is always active — those are exactly the points that existed before TOP PROFILE, so a
+// shape in the middle of the board behaves precisely as it always did. A profile point BELOW the top
+// row is an EXTRA, and an extra is only active where it is actually needed: when its own column is
+// against the board's left or right edge.
+//  - An extra in the shape's LEFTMOST column is active only while the shape is flush against the
+//    board's left edge, an extra in its RIGHTMOST column only while flush against the right edge.
+//  - An extra in any other column is never active. A column in the middle of the shape can always be
+//    reached by a normal point simply by sliding the piece one cell, so it needs no help; the U5
+//    notch is the one to picture here, and it stays as non-draining as it was before TOP PROFILE.
+//  - "Flush" is judged on the COMMITTED grid position (Container.gridPosition), the same input the
+//    top-row gate uses. Being at the edge means the column is otherwise unreachable: the shape cannot
+//    be slid further that way, so without the extra that sand block can never be drained at all,
+//    which is the whole reason the L4 case was raised.
+// The gate is a property of the piece plus its position only — it never looks at the sand.
+//
+// What it DOES change, by design: the per-frame block budget is one slot per ACTIVE extraction point
+// (see THROUGHPUT), so a shape whose top row is narrower than its silhouette gains one slot while it
+// is parked against the matching edge, and none anywhere else.
+//
 // THROUGHPUT (measured 2026-09-12): SandCylinderTunables.sandExtractionRate is applied per
 // ExtractAtPoint call, through the accumulator the caller passes by ref — two calls in one frame
 // really do drain twice as fast (measured 1596 -> 3193 cells/s). So overlap decides WHICH blocks may
-// drain, and the shape decides HOW MANY: at most one block per occupied cell at the extraction level
-// (a 1x1 straddling two blocks still drains at 1x, a U drains at most two blocks). Blocks are tried
+// drain, and the shape decides HOW MANY: at most one block per ACTIVE extraction point — one per
+// column the shape occupies in its top row, plus an edge-gated extra (a 1x1 straddling two blocks
+// still drains at 1x). Blocks are tried
 // most-overlapped first, and a call that removes nothing costs nothing — ExtractAtPoint returns
 // before touching the accumulator when that block has no reachable sand of the color — so the slot
 // passes to the next overlapping block instead of being wasted.
@@ -75,6 +128,14 @@ public class ExtractionGrid : MonoBehaviour {
     // second, zero-width neighbour; it must not count as a candidate, or an aligned 1x1 would keep
     // two accumulators alive and a block it does not actually cover could drain.
     const float MINIMUM_OVERLAP_CELLS = 0.0001f;
+
+    // When a profile point is allowed to extract — see the EDGE-GATED EXTRAS note. ALWAYS is a normal
+    // point (one sitting in the shape's own top row); the rest are extras, gated on the shape being
+    // flush against that side of the board, or never active at all.
+    const byte GATE_ALWAYS = 0;
+    const byte GATE_LEFT_EDGE = 1;
+    const byte GATE_RIGHT_EDGE = 2;
+    const byte GATE_NEVER = 3;
 
     Container _container;
     Board _board;
@@ -102,6 +163,20 @@ public class ExtractionGrid : MonoBehaviour {
     int[] _candidateOwners;
     int _candidateCount;
 
+    // The shape's extraction points, as indices into Container.shape: the topmost occupied cell of
+    // each column the shape occupies, left to right. Built once — Container.shape is assigned in
+    // Container.initialize (already rotated) and never replaced, so the profile cannot go stale.
+    int[] _profileCells;
+    // Parallel to _profileCells: when that point is active (GATE_*). Also built once.
+    byte[] _profileGates;
+    // The shape's own top row, in shape coordinates. The gate compares THIS to the board's top row,
+    // so a profile cell further down still extracts along with the rest of the shape.
+    int _shapeTopY;
+    // The shape's leftmost and rightmost occupied columns, in shape coordinates — added to
+    // Container.gridPosition.x they say whether the shape is flush against either board edge.
+    int _shapeMinX;
+    int _shapeMaxX;
+
     public void initialize(Container container, Board board, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning) {
         _container = container;
         _board = board;
@@ -113,12 +188,70 @@ public class ExtractionGrid : MonoBehaviour {
         _extractionAccumulators = new float[columnCount];
         _grainSpawnAccumulators = new float[columnCount];
 
-        // Each extraction-level cell can reach at most two columns, and a column is never listed
-        // twice — so both bounds hold and the smaller one sizes the buffers.
-        int maxCandidates = Mathf.Min(columnCount, container.shape.Count * 2);
+        buildTopProfile(container.shape);
+
+        // One profile cell spans exactly one cell and so reaches at most TWO columns, and a column is
+        // never listed twice — so both bounds hold and the smaller one sizes the buffers.
+        int maxCandidates = Mathf.Min(columnCount, _profileCells.Length * 2);
         _candidateColumns = new int[maxCandidates];
         _candidateOverlaps = new float[maxCandidates];
         _candidateOwners = new int[maxCandidates];
+    }
+
+    // Picks the shape's extraction points: the topmost occupied cell of every column it occupies, in
+    // left-to-right order, and records when each one is allowed to extract (see EDGE-GATED EXTRAS).
+    // Runs once per Container. See the TOP PROFILE note for why this is the whole rotation story —
+    // Container.shape is the ROTATED cell list, so a rotated piece simply has a different profile.
+    void buildTopProfile(List<Vector2Int> shape) {
+        if (shape == null || shape.Count == 0) {
+            _profileCells = new int[0];
+            _profileGates = new byte[0];
+            _shapeTopY = 0;
+            _shapeMinX = 0;
+            _shapeMaxX = 0;
+            return;
+        }
+
+        int minX = int.MaxValue;
+        int maxX = int.MinValue;
+        _shapeTopY = int.MinValue;
+        for (int i = 0; i < shape.Count; i++) {
+            if (shape[i].x < minX) minX = shape[i].x;
+            if (shape[i].x > maxX) maxX = shape[i].x;
+            if (shape[i].y > _shapeTopY) _shapeTopY = shape[i].y;
+        }
+        _shapeMinX = minX;
+        _shapeMaxX = maxX;
+
+        int columns = maxX - minX + 1;
+        int[] topmost = new int[columns];
+        for (int c = 0; c < columns; c++) topmost[c] = -1;
+        for (int i = 0; i < shape.Count; i++) {
+            int c = shape[i].x - minX;
+            if (topmost[c] < 0 || shape[i].y > shape[topmost[c]].y) topmost[c] = i;
+        }
+
+        // Every column of a connected shape's box is occupied, so this normally keeps all of them —
+        // the filter only stops a hypothetical disconnected shape from putting a point in a column it
+        // does not actually occupy.
+        int used = 0;
+        for (int c = 0; c < columns; c++) if (topmost[c] >= 0) used++;
+        _profileCells = new int[used];
+        _profileGates = new byte[used];
+        int w = 0;
+        for (int c = 0; c < columns; c++) {
+            if (topmost[c] < 0) continue;
+            int i = topmost[c];
+            _profileCells[w] = i;
+            // A point in the shape's own top row is a normal point and always runs; an extra runs
+            // only where its column cannot be reached by sliding the piece, i.e. at the board edge on
+            // that same side.
+            if (shape[i].y == _shapeTopY) _profileGates[w] = GATE_ALWAYS;
+            else if (shape[i].x == minX) _profileGates[w] = GATE_LEFT_EDGE;
+            else if (shape[i].x == maxX) _profileGates[w] = GATE_RIGHT_EDGE;
+            else _profileGates[w] = GATE_NEVER;
+            w++;
+        }
     }
 
     void Update() {
@@ -126,7 +259,7 @@ public class ExtractionGrid : MonoBehaviour {
         if (_container.isSealed || !_container.isAwake) return;
         if (_container.remainingCapacity <= 0) return;
 
-        // One slot per occupied cell at the extraction level — see the THROUGHPUT note.
+        // One slot per active extraction point — see the THROUGHPUT note.
         int slots = gatherOverlappingColumns();
         if (slots <= 0) return;
 
@@ -143,11 +276,26 @@ public class ExtractionGrid : MonoBehaviour {
             Vector3 point = _board.cellToWorldCenter(new Vector2Int(column, _board.topRow));
             point.y = _sandBottomWorldY;
 
+            // GRAIN TARGET ONLY (2026-09-13): where the falling sand is AIMED, never where it is taken
+            // from. `point` above is the extraction site and is untouched by this — the column, the
+            // bottom-up rule, the budget and the accumulators all still run off it, so the amount of
+            // sand a shape pulls is exactly what it was.
+            //
+            // The grains are aimed at the spot ShapeSandFill grows its heap from, so the stream and
+            // the heap read as one pour. Aiming at cellVisual instead — the cell the sand was pulled
+            // through — puts the landing 0.25 to 1.28 cells away from the heap on a 4-5 cell piece,
+            // and on a multi-cell top edge (T4, Z4, U5) it splits the stream into two or three
+            // ribbons that miss the heap on both sides. cellVisual stays as the fallback for a piece
+            // with no fill visual.
+            Transform grainTarget = _container.sandPourTarget != null
+                ? _container.sandPourTarget
+                : _container.cellVisual(_candidateOwners[k]);
+
             int removed = _sandExtraction.ExtractAtPoint(
                 point,
                 _container.sandColorIndex,
                 _container.remainingCapacity,
-                _container.cellVisual(_candidateOwners[k]),
+                grainTarget,
                 ref _extractionAccumulators[column],
                 ref _grainSpawnAccumulators[column]);
 
@@ -160,38 +308,56 @@ public class ExtractionGrid : MonoBehaviour {
         }
     }
 
-    // Fills the candidate arrays with every board column the shape's extraction-level cells actually
-    // overlap, and returns how many such cells there are (the per-frame block budget).
+    // Fills the candidate arrays with every board column the shape's ACTIVE top-profile points
+    // actually overlap, and returns how many such points there are (the per-frame block budget).
     int gatherOverlappingColumns() {
         _candidateCount = 0;
 
-        List<Vector2Int> shape = _container.shape;
-        Vector2 visualAnchor = _container.visualAnchor;
-        Vector2Int gridPosition = _container.gridPosition;
-        int topRow = _board.topRow;
+        // The shape's topmost row must be COMMITTED to the board's top row, and the shape has to have
+        // actually got there rather than merely rounded to it. Both gates keep their old meaning —
+        // they used to be asked per cell, and only the shape's top row could ever pass them.
+        if (_container.gridPosition.y + _shapeTopY != _board.topRow) return 0;
+
         float arrivalTolerance = _tuning != null
             ? _tuning.extractionArrivalToleranceCells
             : GameplayTunables.DEFAULT_EXTRACTION_ARRIVAL_TOLERANCE_CELLS;
+        Vector2 visualAnchor = _container.visualAnchor;
+        if (visualAnchor.y + _shapeTopY < _board.topRow - arrivalTolerance) return 0;
 
-        int extractionLevelCells = 0;
-        for (int i = 0; i < shape.Count; i++) {
-            // Y gate, unchanged: the cell must be committed to the top row...
-            if (gridPosition.y + shape[i].y != topRow) continue;
-            // ...and the shape has to have actually got there, not just rounded to it.
-            if (visualAnchor.y + shape[i].y < topRow - arrivalTolerance) continue;
+        // Which extras are live this frame — see the EDGE-GATED EXTRAS note. Judged on the committed
+        // grid position, like the top-row gate above; on a board exactly as wide as the shape both
+        // come out true and both extras run.
+        bool atLeftEdge = _container.gridPosition.x + _shapeMinX == 0;
+        bool atRightEdge = _container.gridPosition.x + _shapeMaxX == _board.size.x - 1;
 
-            extractionLevelCells++;
+        List<Vector2Int> shape = _container.shape;
+        int activePoints = 0;
+        for (int p = 0; p < _profileCells.Length; p++) {
+            byte gate = _profileGates[p];
+            if (gate == GATE_NEVER) continue;
+            if (gate == GATE_LEFT_EDGE && !atLeftEdge) continue;
+            if (gate == GATE_RIGHT_EDGE && !atRightEdge) continue;
 
-            // This one occupied cell's own footprint, in board cell units: [center - 0.5,
-            // center + 0.5]. Overlap with column c is 1 - |center - c|, so only the two columns
-            // either side of the center can be positive.
+            int i = _profileCells[p];
+            activePoints++;
+
+            // This one cell's footprint in board cell units. Column c covers [c - 0.5, c + 0.5], so
+            // it is touched exactly when c lies strictly inside (low - 0.5, high + 0.5), and the
+            // overlap is the plain interval intersection: 1 when the drawn cell sits on the column,
+            // splitting 1 between two columns everywhere in between.
             float center = visualAnchor.x + shape[i].x;
-            int left = Mathf.FloorToInt(center);
-            addCandidate(left, 1f - (center - left), i);
-            addCandidate(left + 1, center - left, i);
+            float low = center - 0.5f;
+            float high = center + 0.5f;
+
+            int firstColumn = Mathf.FloorToInt(low - 0.5f) + 1;
+            int lastColumn = Mathf.CeilToInt(high + 0.5f) - 1;
+            for (int column = firstColumn; column <= lastColumn; column++) {
+                float overlap = Mathf.Min(high, column + 0.5f) - Mathf.Max(low, column - 0.5f);
+                addCandidate(column, overlap, i);
+            }
         }
 
-        return extractionLevelCells;
+        return activePoints;
     }
 
     // Records one (column, overlap) pair. A column reached by several cells of the shape is kept

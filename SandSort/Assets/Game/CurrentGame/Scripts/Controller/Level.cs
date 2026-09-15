@@ -17,6 +17,30 @@ public class Level : MonoBehaviour, ILevel {
     [SerializeField] Material _sandMaterial;
     [SerializeField] Material _cubeMaterial;
 
+    // The level's own uniformly-scaled copy of the level SO's sand pattern, when the board's width
+    // differs from the pattern's (see fitSandAreaToBoard). Runtime-only and owned here: the pattern
+    // ASSET is shared by every level in the project and is never written to. Null when the pattern
+    // already matches, in which case the asset itself is handed over as-is.
+    SandCylinderPatternData _runtimePattern;
+    // cylinderHeight's own Inspector range cap. The derived sand height is kept inside it.
+    const float SAND_AREA_MAX_HEIGHT = 10f;
+
+    // Fixed design angle for the gameplay camera, in degrees about X. Negative pitches the camera
+    // up, so it sits below the level and looks up at it — the angle the board's boxes read best at.
+    // Found by hand in Play; everything else about the camera is derived from it and the bounds.
+    const float CAMERA_PITCH = -20f;
+
+    // Margin kept around the level inside the frame, in world units, on whichever of the camera's
+    // two axes ends up binding. 0.7 rather than the 1.0 the straight-on camera used: at a phone's
+    // aspect the level is bound by its WIDTH, so this constant alone sets the zoom, and 0.7 is what
+    // lands on the framing found by hand in Play (orthographicSize ~ 8).
+    const float CAMERA_PADDING = 0.7f;
+
+    // How much empty space to keep in front of the nearest content along the camera's own Z. Under
+    // an orthographic projection this cannot change the picture at all (see setupCamera) — it only
+    // buys clearance for the near plane, so dragged shapes and flying sand grains cannot clip.
+    const float CAMERA_CLEARANCE = 10f;
+
     // _sandPaletteColors[i] is the gameplay ItemColor of SandCylinderTunables.sandColors[i], i.e. of
     // sand grid color index i + 1 (SandCylinderSandGrid reserves 0 for EMPTY). Default order
     // matches the demo palette: cream, red, blue, orange, green.
@@ -33,6 +57,16 @@ public class Level : MonoBehaviour, ILevel {
     // material; see containerMaterialOf.
     [Header("Containers")]
     [SerializeField] List<ColorSO> _containerColors = new();
+
+    // The three-piece modular frame kit (Docs/FRAME_KIT.md), assembled at runtime by BoardFrame so
+    // the rim follows the level's real grid and sand dimensions. These are the imported FBX model
+    // prefabs themselves — Board_FrameEdge / Board_FrameCorner / Board_FrameTJunction — not wrapper
+    // prefabs; BoardFrame applies the coordinate-system rotation on each instance the same way
+    // Shape_*.prefab's FBX_Placeholder does. The old fixed-size Board_Frame.fbx is not used.
+    [Header("Board frame (modular kit — Docs/FRAME_KIT.md)")]
+    [SerializeField] GameObject _frameEdgePrefab;
+    [SerializeField] GameObject _frameCornerPrefab;
+    [SerializeField] GameObject _frameTJunctionPrefab;
 
     LevelSO _levelSO;
     public LevelSO levelSO => _levelSO;
@@ -51,6 +85,7 @@ public class Level : MonoBehaviour, ILevel {
     // band to the sand instead of to the board; see ExtractionGrid's EXTRACTION BAND note.
     Vector3 _sandAreaBottomWorld;
     Board _board;
+    BoardFrame _boardFrame;
     readonly List<Container> _containers = new();
 
     float _timeRemaining;
@@ -80,6 +115,12 @@ public class Level : MonoBehaviour, ILevel {
 
         buildSandArea(sandLevel);
         buildBoard(sandLevel);
+        // After both, because the frame is measured FROM the sand quad and the board floor; before
+        // computeFramingBounds only so the hierarchy reads top-down. The frame is deliberately NOT
+        // part of the camera bounds: it adds 0.19 outside the sand/floor rectangle, well inside
+        // CAMERA_PADDING's 0.7, so it is always visible without moving the framing that was found by
+        // hand in Play.
+        buildBoardFrame();
         buildContainers(sandLevel);
 
         _cameraBounds = computeFramingBounds();
@@ -100,7 +141,7 @@ public class Level : MonoBehaviour, ILevel {
     // that the level's own pattern is assigned first, and the controller starts without its conveyor
     // (each Container's ExtractionGrid drives extraction instead).
     void buildSandArea(SandLevelSO sandLevel) {
-        _sandTunables.customPattern = sandLevel.sandPattern;
+        fitSandAreaToBoard(sandLevel);
 
         Transform sandQuad = buildSandQuad();
 
@@ -117,6 +158,126 @@ public class Level : MonoBehaviour, ILevel {
 
         _sandAreaBottomWorld = transform.position + Vector3.down * (_sandTunables.cylinderHeight * 0.5f);
         _sandExtraction.InitWithoutConveyor(_sandGrid, _sandAreaBottomWorld, _sandTunables.SandAreaWorldWidth, _cubeMaterial);
+    }
+
+    // UNIFORM SAND SCALING (2026-09-13). The board's column count is the input; the sand area follows
+    // it in BOTH axes by the same factor, so a wider grid gets a bigger sand area rather than a
+    // stretched one.
+    //
+    // Why it has to happen here and not in the sand: the width was already derived
+    // (SandAreaWorldWidth = EffectiveBlockGridWidth * CubeWorldSize, and EffectiveBlockGridWidth is
+    // the pattern's own block width), so the sand area has always scaled itself — the input was just
+    // authored by hand and drifted from boardSize.x. The HEIGHT was not derived at all: the sand
+    // area's world height IS cylinderHeight. So scaling uniformly means deriving cylinderHeight too,
+    // which is geometry, not physics: sandDensity stays 40, so a cell is still 1/40 of a world unit
+    // and every rate, the accumulator and extractionRangeY are untouched — the column just has more
+    // rows. Deriving it from the block height also makes GridHeight an exact multiple of
+    // blockCellSize (CubeWorldSize * sandDensity == blockCellSize exactly), so FillInitialLayers'
+    // height clamp lands dead on and nothing is clipped or left as an empty band at the top.
+    //
+    // Both writes land on the Level prefab's own SandCylinderTunables INSTANCE (LevelGenerator
+    // instantiates the prefab), never on an asset.
+    void fitSandAreaToBoard(SandLevelSO sandLevel) {
+        SandCylinderPatternData source = sandLevel.sandPattern;
+        if (source == null) {
+            // No pattern: the sand falls back to its own blockGridWidth/Height and its authored
+            // cylinderHeight, exactly as before.
+            _sandTunables.customPattern = null;
+            return;
+        }
+
+        int sourceWidth = Mathf.Max(1, source.width);
+        int sourceHeight = Mathf.Max(1, source.height);
+        int targetWidth = Mathf.Max(1, sandLevel.boardSize.x);
+
+        // ONE factor for both axes. Width comes out exact by construction (the target IS the column
+        // count); height is rounded, because a pattern's height is a whole number of blocks — a block
+        // (CubeWorldSize on a side) is the finest the fill can be cut, subdivisionsPerBlock only
+        // divides WITHIN a block. Rounding is therefore the smallest achievable aspect error:
+        // 5x5 -> 7x7 is exact, 5x7 -> 7x9.8 lands on 7x10 (+2 %).
+        float scale = targetWidth / (float)sourceWidth;
+        int targetHeight = Mathf.Max(1, Mathf.RoundToInt(sourceHeight * scale));
+
+        // cylinderHeight is a Range(1, 10) field; keep the derived value inside the range its own
+        // Inspector allows rather than silently writing past it.
+        int maxHeight = Mathf.Max(1, Mathf.FloorToInt(SAND_AREA_MAX_HEIGHT / _sandTunables.CubeWorldSize));
+        if (targetHeight > maxHeight) {
+            Debug.LogWarning($"[Level::fitSandAreaToBoard] Uniform scale {scale:0.###} would need {targetHeight} blocks of sand height ({targetHeight * _sandTunables.CubeWorldSize:0.##} world units), past cylinderHeight's {SAND_AREA_MAX_HEIGHT} cap — clamped to {maxHeight}. The sand area is no longer a uniform scale of the pattern.");
+            targetHeight = maxHeight;
+        }
+
+        // Same size: hand over the asset itself. Nothing is written to it either way, but this keeps
+        // the common case allocation-free.
+        _sandTunables.customPattern = targetWidth == sourceWidth && targetHeight == sourceHeight
+            ? source
+            : _runtimePattern = scalePatternUniformly(source, targetWidth, targetHeight, _sandTunables.blockCellSize);
+
+        _sandTunables.cylinderHeight = targetHeight * _sandTunables.CubeWorldSize;
+    }
+
+    // A runtime-only copy of `source`, its picture zoomed uniformly to fill targetWidth x targetHeight
+    // BLOCKS. The asset is only ever read.
+    //
+    // RESOLUTION IS THE WHOLE POINT. Resampling at the pattern's own block/sub-block resolution looks
+    // like it works — the aspect ratio comes out right — but it RE-QUANTISES the picture instead of
+    // zooming it: at 5 -> 7 blocks some source cells double and some don't, so shape edges move by up
+    // to half a block (0.425 world) and straight edges go ragged. Measured against a true 1.4x zoom,
+    // 17.9 % of the simulation's cells came out the wrong colour.
+    //
+    // So the clone is built at SIMULATION resolution: subdivisionsPerBlock = blockCellSize makes the
+    // pattern's paint grid exactly the sand grid (blocks * blockCellSize cells per side), and
+    // PaintFromPattern's own subCellSize = blockCellSize / subdivisionsPerBlock then comes out at 1
+    // cell. The edge quantum drops from 0.425 to 0.025 world, the error to 0. Nothing in
+    // SandCylinderDemo changes; this just hands its existing painter a pattern at its own resolution.
+    // (subdivisionsPerBlock carries a [Range(1, 4)] for its Inspector, which is an editor clamp only —
+    // this clone is never an asset and never opened in that Inspector.)
+    //
+    // Nearest-neighbour, and it has to be: the bytes are colour SLOT INDICES into the sand's palette,
+    // so averaging slot 2 and slot 4 into slot 3 would invent a third colour rather than blend.
+    // Sampling is centred — floor((d + 0.5) / cellsPerSourceCell) — so the picture is not shifted
+    // half a source cell toward the low edge.
+    //
+    // ONE factor drives both axes. Width fills exactly by construction; height uses that same factor
+    // rather than its own, so the picture is never stretched when targetHeight had to be rounded to a
+    // whole block (5x7 -> 7x9.8 lands on 7x10). Whatever is left over stays EMPTY at the TOP, which
+    // is the sand's surface — never at the bottom, where the extraction band reads.
+    //
+    // Written through the pattern's own public API (fields + EnsureSized + SetCell) because `cells` is
+    // private to it; no Resize() anywhere, since that one crops and pads rather than resamples.
+    public static SandCylinderPatternData scalePatternUniformly(
+        SandCylinderPatternData source, int targetWidth, int targetHeight, int blockCellSize) {
+        SandCylinderPatternData scaled = ScriptableObject.CreateInstance<SandCylinderPatternData>();
+        scaled.name = $"{source.name} (Scaled {targetWidth}x{targetHeight})";
+        scaled.width = Mathf.Max(1, targetWidth);
+        scaled.height = Mathf.Max(1, targetHeight);
+        scaled.subdivisionsPerBlock = Mathf.Max(1, blockCellSize);
+        scaled.EnsureSized();
+
+        int sourcePaintWidth = source.PaintWidth;
+        int sourcePaintHeight = source.PaintHeight;
+        int paintWidth = scaled.PaintWidth;
+        int paintHeight = scaled.PaintHeight;
+        if (sourcePaintWidth <= 0 || sourcePaintHeight <= 0) return scaled;
+
+        // Destination cells per source cell — the zoom, in simulation cells. Taken from the WIDTH,
+        // which is the axis the board fixes, and then used for the height too.
+        float cellsPerSourceCell = paintWidth / (float)sourcePaintWidth;
+
+        for (int y = 0; y < paintHeight; y++) {
+            int sourceY = Mathf.FloorToInt((y + 0.5f) / cellsPerSourceCell);
+            if (sourceY >= sourcePaintHeight) continue;  // rounding remainder: empty, and at the top
+            sourceY = Mathf.Max(0, sourceY);
+            for (int x = 0; x < paintWidth; x++) {
+                int sourceX = Mathf.Clamp(
+                    Mathf.FloorToInt((x + 0.5f) / cellsPerSourceCell), 0, sourcePaintWidth - 1);
+                scaled.SetCell(x, y, source.GetCell(sourceX, sourceY));
+            }
+        }
+        return scaled;
+    }
+
+    void OnDestroy() {
+        if (_runtimePattern != null) Destroy(_runtimePattern);
     }
 
     // Identical to SandCylinderDemoBootstrap.BuildSandQuad.
@@ -184,6 +345,42 @@ public class Level : MonoBehaviour, ILevel {
         _board.initialize(sandLevel.boardSize, cellSize, _sandMaterial);
     }
 
+    // Builds the rim from the modular frame kit around the two rectangles the level has already
+    // committed to: the board floor and the sand quad. It only READS them — buildBoard's placement,
+    // buildSandArea's geometry, the extraction band and every gameplay value are untouched, which is
+    // also why this runs last. See BoardFrame for the kit's own rules.
+    void buildBoardFrame() {
+        if (_frameEdgePrefab == null || _frameCornerPrefab == null || _frameTJunctionPrefab == null) {
+            Debug.LogWarning("[Level::buildBoardFrame] The Level prefab is missing one of the frame kit pieces (Edge / Corner / T-Junction) — skipping the board frame.");
+            return;
+        }
+
+        float cellSize = _sandTunables.CubeWorldSize;
+        // The board's local position IS the centre of cell (0, 0), so the floor's rectangle is half
+        // a cell out from it on the bottom-left. Same derivation Board.buildFloorVisual uses, kept
+        // here rather than asking Board for bounds so the frame is built from the board's exact
+        // grid extent and not from a Renderer's world bounds.
+        Vector3 boardOrigin = _board.transform.localPosition;
+        Rect gridWindow = new Rect(
+            boardOrigin.x - cellSize * 0.5f,
+            boardOrigin.y - cellSize * 0.5f,
+            _board.size.x * cellSize,
+            _board.size.y * cellSize);
+        // The sand quad is centred on the level origin (buildSandQuad), so its rectangle follows
+        // from its own two dimensions alone.
+        Rect sandWindow = new Rect(
+            -_sandTunables.SandAreaWorldWidth * 0.5f,
+            -_sandTunables.cylinderHeight * 0.5f,
+            _sandTunables.SandAreaWorldWidth,
+            _sandTunables.cylinderHeight);
+
+        GameObject frameObject = new GameObject("BoardFrame");
+        frameObject.transform.SetParent(transform, false);
+        _boardFrame = frameObject.AddComponent<BoardFrame>();
+        _boardFrame.build(gridWindow, sandWindow, cellSize,
+                          _frameEdgePrefab, _frameCornerPrefab, _frameTJunctionPrefab);
+    }
+
     // Prototype camera setup: fits an orthographic camera to the level as built (sand area + Board
     // floor + Containers), rather than hand-tuning per-level transforms.
     //
@@ -211,21 +408,49 @@ public class Level : MonoBehaviour, ILevel {
         Camera camera = Camera.main;
         if (camera == null) return;
 
-        const float padding = 1f;
+        const float padding = CAMERA_PADDING;
 
         Bounds bounds = levelBounds;
-        float distance = 10f;
+
+        // The camera holds CAMERA_PITCH at every level size; only its position and orthographic size
+        // are solved for. That means the framing can no longer be read off the world axes the way it
+        // was while the camera was axis-aligned (bounds.extents.y as the half-height, extents.x as
+        // the half-width, position straight down -Z): the moment the camera tilts, its own up and
+        // right stop agreeing with world Y and X, and both of those numbers are wrong. So measure
+        // the bounds in CAMERA SPACE instead — rotate all eight corners into the camera's basis and
+        // take the largest extent on each of its axes. That is correct at any angle, including 0.
+        Quaternion rotation = Quaternion.Euler(CAMERA_PITCH, 0f, 0f);
+        Quaternion toCameraSpace = Quaternion.Inverse(rotation);
+
+        Vector3 extents = bounds.extents;
+        float halfRight = 0f, halfUp = 0f, halfDepth = 0f;
+        for (int corner = 0; corner < 8; corner++) {
+            Vector3 offset = new Vector3(
+                (corner & 1) == 0 ? -extents.x : extents.x,
+                (corner & 2) == 0 ? -extents.y : extents.y,
+                (corner & 4) == 0 ? -extents.z : extents.z);
+            Vector3 inCameraSpace = toCameraSpace * offset;
+            halfRight = Mathf.Max(halfRight, Mathf.Abs(inCameraSpace.x));
+            halfUp = Mathf.Max(halfUp, Mathf.Abs(inCameraSpace.y));
+            halfDepth = Mathf.Max(halfDepth, Mathf.Abs(inCameraSpace.z));
+        }
+
+        // Same rule as before, now on the camera's own axes: fit the half-height, or the half-width
+        // re-expressed as a half-height when the level is wider than the viewport.
+        float halfWidthAsHeight = (halfRight + padding) / Mathf.Max(0.01f, camera.aspect);
+        camera.orthographicSize = Mathf.Max(halfUp + padding, halfWidthAsHeight);
+
+        // Orthographic: distance along the view axis does NOT scale the image, it only decides what
+        // the near and far planes cut. So back off far enough to clear the deepest corner plus
+        // CAMERA_CLEARANCE and let orthographicSize alone do the framing.
+        float distance = halfDepth + CAMERA_CLEARANCE;
 
         camera.orthographic = true;
-        camera.transform.rotation = Quaternion.identity;
-        camera.transform.position = new Vector3(bounds.center.x, bounds.center.y, bounds.min.z - distance);
-
-        float halfHeight = bounds.extents.y + padding;
-        float halfWidthAsHeight = (bounds.extents.x + padding) / Mathf.Max(0.01f, camera.aspect);
-        camera.orthographicSize = Mathf.Max(halfHeight, halfWidthAsHeight);
+        camera.transform.rotation = rotation;
+        camera.transform.position = bounds.center - rotation * Vector3.forward * distance;
 
         camera.nearClipPlane = 0.1f;
-        camera.farClipPlane = distance + bounds.size.z + padding * 2f;
+        camera.farClipPlane = distance + halfDepth + padding * 2f;
     }
 
     // Area-based capacity model (see SandLevelSO's class header): each color's starting sand cell
@@ -323,7 +548,7 @@ public class Level : MonoBehaviour, ILevel {
             }
 
             Container container = containerObject.AddComponent<Container>();
-            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _sandAreaBottomWorld.y, _gameplayTunables);
+            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _sandAreaBottomWorld.y, _gameplayTunables, _sandMaterial);
             _containers.Add(container);
         }
     }

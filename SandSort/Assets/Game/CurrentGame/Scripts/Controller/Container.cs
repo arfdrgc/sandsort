@@ -96,6 +96,9 @@ public class Container : MonoBehaviour {
     public float fillLevel => _capacityUnits <= 0 ? 1f : (float)_filledUnits / _capacityUnits;
 
     public Transform cellVisual(int shapeIndex) => _cellVisuals[shapeIndex];
+    // The point the sand pile grows from — see Shape.sandPourTarget. Only ever used as a PARTICLE
+    // destination; extraction still reads the board column the shape's cells overlap.
+    public Transform sandPourTarget => _shapeVisual != null ? _shapeVisual.sandPourTarget : null;
 
     float dragFollowSharpness => _tuning != null ? _tuning.dragFollowSharpness : GameplayTunables.DEFAULT_DRAG_FOLLOW_SHARPNESS;
     float dragMaxSpeedCells => _tuning != null ? _tuning.dragMaxSpeedCells : GameplayTunables.DEFAULT_DRAG_MAX_SPEED_CELLS;
@@ -112,7 +115,9 @@ public class Container : MonoBehaviour {
     // default material if no ColorSO/material is set up for this color.
     // sandBottomWorldY is passed straight through to ExtractionGrid (a Container never uses it
     // itself) — see ExtractionGrid's EXTRACTION BAND note for what it anchors.
-    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning) {
+    // unlitFillSource is the level's own sand material, passed straight through to the Shape's
+    // sand-fill visual (ShapeSandFill). It is only ever COPIED there, never written to.
+    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning, Material unlitFillSource) {
         _board = board;
         _tuning = tuning;
 
@@ -132,7 +137,7 @@ public class Container : MonoBehaviour {
         // it to place its fill readout on the right cell corner (see Shape.placeFillAnchor).
         if (_shapeVisual != null) _shapeVisual.setCellWorldSize(_board.cellSize);
 
-        buildShapeVisuals(colorMaterial, fallbackColor);
+        buildShapeVisuals(colorMaterial, fallbackColor, unlitFillSource);
         snapVisualToGridPosition();
         refreshFillDisplay();
 
@@ -141,7 +146,7 @@ public class Container : MonoBehaviour {
         gameObject.AddComponent<ExtractionGrid>().initialize(this, _board, sandExtraction, sandBottomWorldY, tuning);
     }
 
-    void buildShapeVisuals(Material colorMaterial, Color fallbackColor) {
+    void buildShapeVisuals(Material colorMaterial, Color fallbackColor, Material unlitFillSource) {
         float cellSize = _board.cellSize;
 
         // The cubes stay even when the Shape prefab's FBX is what the player sees (2026-09-13): each
@@ -149,9 +154,28 @@ public class Container : MonoBehaviour {
         // cellVisual(i) — the target ExtractionGrid hands SandExtractionController for the flying sand
         // grains. Only the cube's MeshRenderer is switched off, and only when an FBX renderer exists;
         // legacy levels (no Shape prefab) have nothing else to draw them.
-        bool fbxDrawsShape = _shapeVisual != null
-                             && _shapeVisual.fbxPlaceholder != null
-                             && _shapeVisual.fbxPlaceholder.GetComponentInChildren<Renderer>(true) != null;
+        Transform fbxRoot = _shapeVisual != null ? _shapeVisual.fbxPlaceholder : null;
+        Renderer[] fbxRenderers = fbxRoot != null
+            ? fbxRoot.GetComponentsInChildren<Renderer>(true)
+            : System.Array.Empty<Renderer>();
+        bool fbxDrawsShape = fbxRenderers.Length > 0;
+
+        // Colour (2026-09-13): the FBX ships with its own embedded M_Shape (green), and that material
+        // is SHARED by every Container built from the same Shape prefab — writing a colour into it
+        // would repaint all of them and dirty the imported asset. Pointing the Renderer at this
+        // Container's ColorSO material changes no material at all, only which one this Renderer draws
+        // with, so each piece stays independent with no per-instance copy to own or destroy. Same
+        // material the cubes below get; when the level has no ColorSO for this colour the FBX keeps
+        // M_Shape and the (visible) cubes carry the fallback tint, as before.
+        if (colorMaterial != null) {
+            foreach (Renderer fbxRenderer in fbxRenderers) fbxRenderer.sharedMaterial = colorMaterial;
+            // The readout's backing plate is no longer this container's colour: it is one shared
+            // translucent black, built from the level's unlit material (see Shape.setFillBadgeMaterial).
+            if (_shapeVisual != null) _shapeVisual.setFillBadgeMaterial(unlitFillSource);
+            // Same colour again for the sand that fills the piece, so there is still exactly one
+            // colour source per Container.
+            if (_shapeVisual != null) _shapeVisual.setSandFillSource(unlitFillSource, colorMaterial);
+        }
 
         foreach (Vector2Int offset in _shape) {
             GameObject cell = GameObject.CreatePrimitive(PrimitiveType.Cube);

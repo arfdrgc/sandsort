@@ -14,7 +14,9 @@ using UnityEngine;
 [RequireComponent(typeof(SandCylinderSandGrid))]
 public class SandCylinderRenderer : MonoBehaviour {
 
-    [SerializeField] Color32 backgroundColor = new Color32(24, 28, 46, 255);
+    // Near-black, matching the mockup's sand panel (#0A0B12): the darker the backdrop, the more
+    // the grain colours read. Purely visual — the grid, the fill and the extraction never see it.
+    [SerializeField] Color32 backgroundColor = new Color32(10, 11, 18, 255);
 
     SandCylinderSandGrid grid;
     Texture2D texture;
