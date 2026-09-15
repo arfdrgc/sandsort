@@ -11,6 +11,10 @@ using UnityEngine;
 // SandUnlit.mat + [SerializeField] Material field: Init() now takes a
 // pre-authored Material asset (SandCylinderDemo/Materials/SandCylinderSandUnlit.mat)
 // so the shader dependency is visible to Unity's build-time asset scan.
+// Later execution order so this LateUpdate always draws after
+// SandCylinderSandGrid.LateUpdate has run its active-region sub-steps. It has
+// no Update, so Update ordering (grid Step vs extraction) is unaffected.
+[DefaultExecutionOrder(100)]
 [RequireComponent(typeof(SandCylinderSandGrid))]
 public class SandCylinderRenderer : MonoBehaviour {
 

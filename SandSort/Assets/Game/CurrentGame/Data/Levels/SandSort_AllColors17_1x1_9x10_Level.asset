@@ -1,0 +1,127 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6796e98d92a764eabb2a3412fd254322, type: 3}
+  m_Name: SandSort_AllColors17_1x1_9x10_Level
+  m_EditorClassIdentifier: Assembly-CSharp::SandLevelSO
+  _levelPrefab: {fileID: 3500330111660482340, guid: 6cadf0c9289244df8da0cd252d847e23, type: 3}
+  _difficulty: 0
+  _levelTutorial: {fileID: 0}
+  _expandBottom: 0
+  _centerFactor: 0
+  _colorPalette: {fileID: 0}
+  _boardSize: {x: 9, y: 10}
+  _containers:
+  - position: {x: 0, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 171
+  - position: {x: 0, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 161
+  - position: {x: 1, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 101
+  - position: {x: 1, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 141
+  - position: {x: 2, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 121
+  - position: {x: 2, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 102
+  - position: {x: 3, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 103
+  - position: {x: 3, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 111
+  - position: {x: 4, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 112
+  - position: {x: 4, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 113
+  - position: {x: 5, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 122
+  - position: {x: 5, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 123
+  - position: {x: 6, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 131
+  - position: {x: 6, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 132
+  - position: {x: 7, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 133
+  - position: {x: 7, y: 2}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 151
+  - position: {x: 8, y: 0}
+    shape: {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 181
+  _sandTexture: {fileID: 2800000, guid: 1f4bc0de552741f9b7374de2cf41358f, type: 3}
+  _sandPattern: {fileID: 0}
+  _timerSeconds: 900

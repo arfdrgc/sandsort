@@ -49,13 +49,26 @@ MonoBehaviour:
   _gameplayTunables: {fileID: 11400000, guid: ceaeaffe84e0e4b26aa74e9c040efad6, type: 2}
   _sandMaterial: {fileID: 2100000, guid: 8fa1ce54e3ae4ef5834ec554bd2f842f, type: 2}
   _cubeMaterial: {fileID: 2100000, guid: 6f8b7101314b44a8a4ace3a13f618135, type: 2}
-  _sandPaletteColors: ab000000a1000000650000008d00000079000000
+  _sandPalette: {fileID: 11400000, guid: a15f12be4d1054250b1ab459bf0e211e, type: 2}
+  _sandPaletteColors: ab000000a1000000650000008d0000007900000066000000670000006f00000070000000710000007a0000007b00000083000000840000008500000097000000b5000000
   _containerColors:
   - {fileID: 11400000, guid: 93fc9988f149432e9e28b4802fca98cd, type: 2}
   - {fileID: 11400000, guid: 768e642e27d94195a549a408cb4ec216, type: 2}
   - {fileID: 11400000, guid: c5fc9e32d89b41a2b06c25468b60b962, type: 2}
   - {fileID: 11400000, guid: 5e3aa10952af44cca269cdaeffce5203, type: 2}
   - {fileID: 11400000, guid: 7ea4b610df0945ad9798919b219ff453, type: 2}
+  - {fileID: 11400000, guid: 8f455b54adf404a7d91217378f72fd48, type: 2}
+  - {fileID: 11400000, guid: 616160ebd9f2f43afbfc38f3a0c272b8, type: 2}
+  - {fileID: 11400000, guid: 5bfdca0edbe21481faa8051a89946aa5, type: 2}
+  - {fileID: 11400000, guid: f2a94920be4dd43a686815cb6df97515, type: 2}
+  - {fileID: 11400000, guid: 25c7957d54994d4dbc4cabff273d4ec3, type: 2}
+  - {fileID: 11400000, guid: 441b202aa7944f7490263e4252b4e616, type: 2}
+  - {fileID: 11400000, guid: 64c1b9b496754fd6bc61774e8a730008, type: 2}
+  - {fileID: 11400000, guid: 684b0fcb649b4498b3629525c672fd9c, type: 2}
+  - {fileID: 11400000, guid: d4a2f6a2878f41778445b73ad1ddde17, type: 2}
+  - {fileID: 11400000, guid: de469f9a062548cd80ac4cd08bf73d8a, type: 2}
+  - {fileID: 11400000, guid: be2834b4599a4b0f98a2893565e14c99, type: 2}
+  - {fileID: 11400000, guid: 48441c5375f34fff9d5d51161d6abaf8, type: 2}
   _frameEdgePrefab: {fileID: 919132149155446097, guid: d60c5efcc765b41aca138b89f48b529f, type: 3}
   _frameCornerPrefab: {fileID: 919132149155446097, guid: 0be7f4a3079ee48289a90d46537d69cf, type: 3}
   _frameTJunctionPrefab: {fileID: 919132149155446097, guid: c12863d032d644b54b24889cd9fe31e7, type: 3}
@@ -83,10 +96,22 @@ MonoBehaviour:
   - {r: 0.1647, g: 0.3333, b: 0.9333, a: 1}
   - {r: 0.9412, g: 0.502, b: 0.1176, a: 1}
   - {r: 0.3216, g: 0.851, b: 0.2353, a: 1}
+  - {r: 0.30980393, g: 0.7647059, b: 0.96862745, a: 1}
+  - {r: 0.050980393, g: 0.2784314, b: 0.6313726, a: 1}
+  - {r: 0.4745098, g: 0.33333334, b: 0.28235295, a: 1}
+  - {r: 0.6313726, g: 0.53333336, b: 0.49803922, a: 1}
+  - {r: 0.24313726, g: 0.15294118, b: 0.13725491, a: 1}
+  - {r: 0.5058824, g: 0.78039217, b: 0.5176471, a: 1}
+  - {r: 0.105882354, g: 0.36862746, b: 0.1254902, a: 1}
+  - {r: 0.6117647, g: 0.15294118, b: 0.6901961, a: 1}
+  - {r: 0.7294118, g: 0.40784314, b: 0.78431374, a: 1}
+  - {r: 0.2901961, g: 0.078431375, b: 0.54901963, a: 1}
+  - {r: 0.9137255, g: 0.11764706, b: 0.3882353, a: 1}
+  - {r: 1, g: 0.92156863, b: 0.23137255, a: 1}
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
   maxCellsPerColumnPerTick: 6
-  extractionRangeY: 0.4
+  extractionRangeY: 0.7
   extractionNeighborPrimeRadius: 1
   extractionCaveInLeftBias: 0.5
   extractionPrimeMaxEmptyGap: 3
@@ -109,4 +134,7 @@ MonoBehaviour:
   minGapForFreeCascade: 2
   settleJitterChance: 0.015
   settleJitterWindowTicks: 3
-  colorNoiseAmount: 0.14
+  colorNoiseAmount: 0.2
+  activeSubStepsPerTick: 24
+  activeSubStepMargin: 24
+  activeSubStepWindowSeconds: 0.5

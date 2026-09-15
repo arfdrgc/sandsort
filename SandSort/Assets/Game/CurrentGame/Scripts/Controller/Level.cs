@@ -16,11 +16,18 @@ public class Level : MonoBehaviour, ILevel {
     [SerializeField] GameplayTunables _gameplayTunables;
     [SerializeField] Material _sandMaterial;
     [SerializeField] Material _cubeMaterial;
+    // Only ever used to read a pixel-art PNG's colours into sand colour SLOT indices (see
+    // SandPatternTextureConverter). It is NOT the authority for what the sand looks like: the
+    // rendered colours still come from _sandTunables.sandColors and the slot -> ItemColor mapping
+    // still comes from _sandPaletteColors below. Nothing here writes into either.
+    [SerializeField] SandPaletteSO _sandPalette;
 
     // The level's own uniformly-scaled copy of the level SO's sand pattern, when the board's width
     // differs from the pattern's (see fitSandAreaToBoard). Runtime-only and owned here: the pattern
     // ASSET is shared by every level in the project and is never written to. Null when the pattern
-    // already matches, in which case the asset itself is handed over as-is.
+    // already matches, in which case the asset itself is handed over as-is. Also holds the pattern
+    // built from a level's pixel-art PNG (tryFitSandAreaFromTexture) — that one is always a fresh
+    // instance, so it needs the same OnDestroy cleanup and gets it for free here.
     SandCylinderPatternData _runtimePattern;
     // cylinderHeight's own Inspector range cap. The derived sand height is kept inside it.
     const float SAND_AREA_MAX_HEIGHT = 10f;
@@ -107,7 +114,7 @@ public class Level : MonoBehaviour, ILevel {
             return;
         }
 
-        if (sandLevel.validateLevel(_sandPaletteColors, out string validationMessage)) {
+        if (sandLevel.validateLevel(_sandPaletteColors, _sandPalette, out string validationMessage)) {
             Debug.Log($"[Level::initialize] Level validation passed: {validationMessage}");
         } else {
             Debug.LogWarning($"[Level::initialize] Level validation issues: {validationMessage}");
@@ -178,6 +185,13 @@ public class Level : MonoBehaviour, ILevel {
     // Both writes land on the Level prefab's own SandCylinderTunables INSTANCE (LevelGenerator
     // instantiates the prefab), never on an asset.
     void fitSandAreaToBoard(SandLevelSO sandLevel) {
+        int targetWidth = Mathf.Max(1, sandLevel.boardSize.x);
+
+        // A pixel-art PNG takes precedence over a hand-painted pattern (see SandLevelSO's _sandTexture
+        // comment). Everything below this point is the original pattern path, unchanged — it is what
+        // a level with no texture, or one whose texture could not be converted, still runs.
+        if (sandLevel.sandTexture != null && tryFitSandAreaFromTexture(sandLevel, targetWidth)) return;
+
         SandCylinderPatternData source = sandLevel.sandPattern;
         if (source == null) {
             // No pattern: the sand falls back to its own blockGridWidth/Height and its authored
@@ -188,7 +202,6 @@ public class Level : MonoBehaviour, ILevel {
 
         int sourceWidth = Mathf.Max(1, source.width);
         int sourceHeight = Mathf.Max(1, source.height);
-        int targetWidth = Mathf.Max(1, sandLevel.boardSize.x);
 
         // ONE factor for both axes. Width comes out exact by construction (the target IS the column
         // count); height is rounded, because a pattern's height is a whole number of blocks — a block
@@ -200,7 +213,7 @@ public class Level : MonoBehaviour, ILevel {
 
         // cylinderHeight is a Range(1, 10) field; keep the derived value inside the range its own
         // Inspector allows rather than silently writing past it.
-        int maxHeight = Mathf.Max(1, Mathf.FloorToInt(SAND_AREA_MAX_HEIGHT / _sandTunables.CubeWorldSize));
+        int maxHeight = maxSandHeightBlocks;
         if (targetHeight > maxHeight) {
             Debug.LogWarning($"[Level::fitSandAreaToBoard] Uniform scale {scale:0.###} would need {targetHeight} blocks of sand height ({targetHeight * _sandTunables.CubeWorldSize:0.##} world units), past cylinderHeight's {SAND_AREA_MAX_HEIGHT} cap — clamped to {maxHeight}. The sand area is no longer a uniform scale of the pattern.");
             targetHeight = maxHeight;
@@ -213,6 +226,40 @@ public class Level : MonoBehaviour, ILevel {
             : _runtimePattern = scalePatternUniformly(source, targetWidth, targetHeight, _sandTunables.blockCellSize);
 
         _sandTunables.cylinderHeight = targetHeight * _sandTunables.CubeWorldSize;
+    }
+
+    // How tall, in blocks, the sand area is allowed to get. cylinderHeight carries a Range(1, 10) on
+    // its own Inspector field, so a derived value has to stay inside it rather than silently write
+    // past it. Shared by both starting-picture paths so the cap can only ever be defined once.
+    int maxSandHeightBlocks => Mathf.Max(1, Mathf.FloorToInt(SAND_AREA_MAX_HEIGHT / _sandTunables.CubeWorldSize));
+
+    // The PNG path. Returns false when the picture could not be converted — a missing palette, an
+    // unreadable texture, an off-palette pixel — and the caller then carries on to the hand-painted
+    // pattern rather than leaving the level with no sand at all. Deliberately loud about it: a level
+    // that quietly renders a different picture than the one authored is worse than one that says so.
+    //
+    // What it writes is exactly what the pattern path writes — customPattern, cylinderHeight, and
+    // _runtimePattern for the OnDestroy cleanup that already existed — so from the next line onward
+    // nothing downstream can tell a PNG-authored level from a hand-painted one. The sand simulation
+    // and the extraction never learn which one it was.
+    bool tryFitSandAreaFromTexture(SandLevelSO sandLevel, int targetWidth) {
+        if (_sandPalette == null) {
+            Debug.LogError("[Level::tryFitSandAreaFromTexture] The level has a sand texture but the Level prefab has no SandPaletteSO assigned — cannot tell which colour is which sand slot. Falling back to the level's sand pattern.");
+            return false;
+        }
+
+        if (!SandPatternTextureConverter.tryBuildPattern(
+                sandLevel.sandTexture, _sandPalette, targetWidth,
+                _sandTunables.blockCellSize, maxSandHeightBlocks,
+                out SandCylinderPatternData built, out string error)) {
+            Debug.LogError($"[Level::tryFitSandAreaFromTexture] {error} Falling back to the level's sand pattern.");
+            return false;
+        }
+
+        _runtimePattern = built;
+        _sandTunables.customPattern = built;
+        _sandTunables.cylinderHeight = built.height * _sandTunables.CubeWorldSize;
+        return true;
     }
 
     // A runtime-only copy of `source`, its picture zoomed uniformly to fill targetWidth x targetHeight

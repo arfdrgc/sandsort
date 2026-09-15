@@ -44,6 +44,17 @@ public class SandCylinderSandGrid : MonoBehaviour {
     // never gets MORE gravity evaluations per tick than the rest of the grid.
     int[] lastPrimedTickPerColumn;
 
+    // Active-region sub-step state (see RunActiveSubSteps). Plain runtime
+    // buffers, rebuilt whenever they are missing or the wrong size, so a grid
+    // resize or a mid-Play recompile just starts a fresh history.
+    byte[] subStepPreviousCells;
+    const int ActiveHistoryLength = 256;
+    int[] activeMinX, activeMaxX, activeMinY, activeMaxY;
+    float[] activeTime;
+    int activeHistoryIndex;
+    int subStepParity;
+    float subStepAccumulator;
+
     public int Width => width;
     public int Height => height;
     public int TotalSandCount { get; private set; }
@@ -75,6 +86,9 @@ public class SandCylinderSandGrid : MonoBehaviour {
         // was already primed this tick before Step() has run even once.
         lastPrimedTickPerColumn = new int[width];
         for (int x = 0; x < width; x++) lastPrimedTickPerColumn[x] = -1;
+
+        subStepPreviousCells = null;
+        activeMinX = null;
     }
 
     public byte GetCell(int x, int y) => cells[y * width + x];
@@ -726,6 +740,126 @@ public class SandCylinderSandGrid : MonoBehaviour {
             Step();
             stepAccumulator -= stepInterval;
         }
+    }
+
+    // Sub-steps run in LateUpdate, not Update: extraction removes cells during
+    // Update, and the holes it leaves hang the
+    // grains above them for exactly the frame SandCylinderRenderer then draws —
+    // short horizontal rows of floating sand. Running the same passes here,
+    // after every Update and before the renderer's LateUpdate (it carries a
+    // later DefaultExecutionOrder), closes those holes before they are ever
+    // drawn. Measured on the 9-colour dig: frames showing a 2+ cell hanging row
+    // 14% -> 2%, none left in the extraction band, same pass count and cost.
+    void LateUpdate() {
+        if (tunables == null || cells == null) return;
+        if (tunables.activeSubStepsPerTick > 0) {
+            // Spread evenly over frames rather than bunched onto tick frames:
+            // extraction runs every frame, and a pocket it empties refills far
+            // more slowly when its extra passes arrive in bursts (measured: 90%
+            // of the flow at 7.8 s bunched vs 5.3 s spread, same pass count).
+            subStepAccumulator += Time.deltaTime * tunables.activeSubStepsPerTick * Mathf.Max(1, tunables.sandSimulationSpeed);
+            int passes = Mathf.Min(Mathf.FloorToInt(subStepAccumulator), tunables.activeSubStepsPerTick * safetyTicksPerFrame);
+            subStepAccumulator -= passes;
+            if (subStepAccumulator > tunables.activeSubStepsPerTick) subStepAccumulator = 0f; // after a hitch, don't try to catch up
+            RunActiveSubSteps(passes);
+        } else {
+            subStepAccumulator = 0f;
+        }
+    }
+
+    const int safetyTicksPerFrame = 8;
+
+    // ACTIVE-REGION SUB-STEPS (2026-09-15). A steep face only moves through
+    // its outermost grains — each StepCell call lets one grain slide one
+    // diagonal cell, and the grains behind it wait until it is gone — so a
+    // large collapse is limited by how many StepCell evaluations the face gets
+    // per second, not by any rule. Raising sandSimulationSpeed buys those
+    // evaluations for the whole grid; this buys them only where sand has moved
+    // during the last activeSubStepWindowSeconds, plus a margin.
+    //
+    // The extra passes are the ordinary StepCell rule in Step()'s own
+    // row-major, alternating-direction order. That order matters: running the
+    // same extra gravity column by column (PrimeColumnFalling-style) was just
+    // as fast but drew vertical colour streaks through mixing sand, because
+    // each column fully resolved before its neighbour had moved at all.
+    //
+    // currentTickId is deliberately not advanced here, so extraction priming
+    // stays capped at once per real tick.
+    void RunActiveSubSteps(int passes) {
+        int cellCount = width * height;
+        if (subStepPreviousCells == null || subStepPreviousCells.Length != cellCount) {
+            subStepPreviousCells = new byte[cellCount];
+            System.Array.Copy(cells, subStepPreviousCells, cellCount);
+            activeMinX = null;
+            return;
+        }
+        if (activeMinX == null) {
+            activeMinX = new int[ActiveHistoryLength];
+            activeMaxX = new int[ActiveHistoryLength];
+            activeMinY = new int[ActiveHistoryLength];
+            activeMaxY = new int[ActiveHistoryLength];
+            activeTime = new float[ActiveHistoryLength];
+            for (int i = 0; i < ActiveHistoryLength; i++) activeMaxX[i] = -1;
+            activeHistoryIndex = 0;
+        }
+
+        // Bounding box of everything that changed since the previous call
+        // ended: Step() ticks plus any extraction in between.
+        int minX = width, maxX = -1, minY = height, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            int row = y * width;
+            for (int x = 0; x < width; x++) {
+                byte v = cells[row + x];
+                if (v == subStepPreviousCells[row + x]) continue;
+                subStepPreviousCells[row + x] = v;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+        float now = Time.time;
+        if (maxX >= 0) {
+            activeMinX[activeHistoryIndex] = minX;
+            activeMaxX[activeHistoryIndex] = maxX;
+            activeMinY[activeHistoryIndex] = minY;
+            activeMaxY[activeHistoryIndex] = maxY;
+            activeTime[activeHistoryIndex] = now;
+            activeHistoryIndex = (activeHistoryIndex + 1) % ActiveHistoryLength;
+        }
+        if (passes <= 0) return;
+
+        float oldest = now - Mathf.Max(0.01f, tunables.activeSubStepWindowSeconds);
+        minX = width; maxX = -1; minY = height; maxY = -1;
+        for (int i = 0; i < ActiveHistoryLength; i++) {
+            if (activeMaxX[i] < 0 || activeTime[i] < oldest) continue;
+            if (activeMinX[i] < minX) minX = activeMinX[i];
+            if (activeMaxX[i] > maxX) maxX = activeMaxX[i];
+            if (activeMinY[i] < minY) minY = activeMinY[i];
+            if (activeMaxY[i] > maxY) maxY = activeMaxY[i];
+        }
+        if (maxX < 0) return; // nothing has moved recently: no extra work
+
+        int margin = Mathf.Max(0, tunables.activeSubStepMargin);
+        minX = Mathf.Max(0, minX - margin);
+        maxX = Mathf.Min(width - 1, maxX + margin);
+        minY = Mathf.Max(1, minY - margin);
+        maxY = Mathf.Min(height - 1, maxY + margin);
+
+        for (int pass = 0; pass < passes; pass++) {
+            subStepParity ^= 1;
+            for (int y = minY; y <= maxY; y++) {
+                bool leftToRight = ((y + subStepParity) & 1) == 0;
+                if (leftToRight) {
+                    for (int x = minX; x <= maxX; x++) StepCell(x, y);
+                } else {
+                    for (int x = maxX; x >= minX; x--) StepCell(x, y);
+                }
+            }
+        }
+
+        // The sub-steps' own moves are not "new" movement for the next call.
+        System.Array.Copy(cells, subStepPreviousCells, cellCount);
     }
 
     void Step() {

@@ -99,6 +99,14 @@ public class SandCylinderTunables : MonoBehaviour {
     [Range(1, 60)] public int settleJitterWindowTicks = 3;
     [Range(0f, 1f)] public float colorNoiseAmount = 0.14f;
 
+    [Header("Active-Region Sub-Steps")]
+    [Tooltip("Extra gravity passes per simulation tick (spread evenly across frames, so the rate is activeSubStepsPerTick x sandSimulationSpeed passes per second), run only inside the region where sand has actually been moving recently (see SandCylinderSandGrid.RunActiveSubSteps). Each pass is the ordinary StepCell rule in Step()'s own row order, so the sand's behavior is unchanged — a collapsing slope just gets more evaluations per second where it matters. 0 = off (original behavior). Without it a steep face sheds grains one at a time, which reads as slow repositioning and leaves short horizontal ledges of briefly-hanging grains along the face. Measured on SandSort_SandBuckets2_5x4 at sandSimulationSpeed 45 (Editor, M-series Mac): 90% of the repositioning flow took 26 s with 0, 5.8 s with 16 (~1.5 ms/frame), 5.3 s with 24 (~2.1 ms/frame), 5.0 s with 32 (~2.8 ms/frame). Cost scales with passes x active-region area.")]
+    [Range(0, 64)] public int activeSubStepsPerTick = 0;
+    [Tooltip("Cells added on every side of the recently-moving bounding box before the extra passes run. The box is built from cells that changed, so without a margin the cells about to start moving — which have not changed yet — are left out.")]
+    [Range(0, 64)] public int activeSubStepMargin = 24;
+    [Tooltip("How long, in seconds, the active region remembers where sand moved. A single frame's changes cover only the thin strip moving right now; remembering a short history keeps the whole collapsing slope inside the region.")]
+    [Range(0.05f, 2f)] public float activeSubStepWindowSeconds = 0.5f;
+
     // The actual block-grid dimensions in use — blockGridWidth/blockGridHeight
     // UNLESS customPattern is assigned, in which case the pattern's own
     // Width/Height take over completely. This is the single place that

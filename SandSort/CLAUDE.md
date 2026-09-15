@@ -190,6 +190,21 @@ Everything else under `Assets/` (AppsFlyer, Firebase, MaxSdk, Obi, StylizedWater
 
 Scenes: only `Assets/Scenes/BaseScene.unity` and `Assets/Scenes/GameScene.unity` exist.
 
+## Current work status
+
+`TODO.md` (repo root of this Unity project) is the rolling status file — what is
+actually done, what is deliberately deferred, and what comes next. **Read it
+before starting or resuming work under `Assets/Game/CurrentGame/`**, and update
+it when a stage lands. It complements `Docs/` (which holds specs, i.e. what the
+game *should* do) by recording the real state of the implementation.
+
+Short version as of 2026-09-15: the PNG-based sand pattern workflow is live
+(Faz 0 + Faz 1 complete), the palette carries 17 sand colours, and a 9-colour
+example pattern is at v2 (`SandSort_FaultScarp9_9x10.png`) with all 9 colours
+reachable from the extraction band. The sand simulation, extraction, capacity
+and container systems have not been modified and must not be — post-extraction
+deformation is a core feature, so no shape-freezing system may be added.
+
 ## Game Design Reference
 
 `Docs/game_mechanics.md` holds the design spec for "Pixel Loop Blast" itself — core loop, controls, win/lose conditions, progression, economy, and which MoowCore events/managers each mechanic hooks into. Consult it before implementing anything under `Assets/Game/CurrentGame/`, and keep it updated as gameplay decisions are made — it is the source of truth for *what* the game should do, complementing this file's description of *how* the codebase is structured.

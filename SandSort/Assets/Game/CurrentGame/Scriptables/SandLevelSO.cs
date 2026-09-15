@@ -7,9 +7,10 @@ using UnityEngine;
 //  - Containers occupy an arbitrary set of grid cells (a "shape" — 1x1, 2x1, L, T, ...), not
 //    just rectangles. See ContainerData.cells.
 //
-// SAND (revised 2026-09-11): the sand is SandCylinderDemo's approved SandCylinderSandGrid, reused
-// as-is. A level only supplies its starting picture — a SandCylinderPatternData painted with that
-// demo's own pattern editor. Its authored width (in blocks) does NOT have to match boardSize.x:
+// SAND (revised 2026-09-11, extended 2026-09-15): the sand is SandCylinderDemo's approved
+// SandCylinderSandGrid, reused as-is. A level only supplies its starting picture — either a
+// pixel-art PNG (_sandTexture, the preferred path) or a SandCylinderPatternData painted with that
+// demo's own pattern editor. Its authored width does NOT have to match boardSize.x:
 // Level.fitSandAreaToBoard scales the picture uniformly to boardSize.x blocks on load (a runtime
 // clone — the asset is never written), so "each board column sits under exactly one sand block"
 // (see Level.buildBoard) holds by construction whatever the pattern was painted at.
@@ -36,7 +37,16 @@ public class SandLevelSO : LevelSO {
     [SerializeField] List<ContainerData> _containers = new();
     public List<ContainerData> containers => _containers;
 
+    // PNG FIRST, HAND-PAINTED PATTERN AS FALLBACK (2026-09-15). _sandTexture is a pixel-art PNG
+    // painted in Aseprite/Piskel and converted at load by SandPatternTextureConverter; _sandPattern
+    // is the original Inspector-painted asset. When both are set the texture wins and validateLevel
+    // says so. Neither changes anything downstream: both end up as the same runtime
+    // SandCylinderPatternData handed to SandCylinderTunables.customPattern, so the sand simulation
+    // and the extraction are identical either way. Levels authored before the PNG path keep working
+    // untouched — that is what the fallback is for.
     [Header("Sand")]
+    [SerializeField] Texture2D _sandTexture;
+    public Texture2D sandTexture => _sandTexture;
     [SerializeField] SandCylinderPatternData _sandPattern;
     public SandCylinderPatternData sandPattern => _sandPattern;
 
@@ -50,9 +60,9 @@ public class SandLevelSO : LevelSO {
     // (that sand can never be collected), and Container colors with no matching sand
     // (auto-complete immediately at runtime — see Container.forceComplete()). None are fatal;
     // all are worth flagging.
-    public bool validateLevel(IReadOnlyList<ColorSO.ItemColor> paletteColors, out string message) {
-        if (_sandPattern == null) {
-            message = "No sand pattern assigned.";
+    public bool validateLevel(IReadOnlyList<ColorSO.ItemColor> paletteColors, SandPaletteSO sandPalette, out string message) {
+        if (_sandTexture == null && _sandPattern == null) {
+            message = "No sand texture or sand pattern assigned.";
             return false;
         }
 
@@ -64,15 +74,38 @@ public class SandLevelSO : LevelSO {
 
         HashSet<ColorSO.ItemColor> sandColors = new();
         HashSet<byte> unmappedSlots = new();
-        for (int y = 0; y < _sandPattern.PaintHeight; y++) {
-            for (int x = 0; x < _sandPattern.PaintWidth; x++) {
-                byte slot = _sandPattern.GetCell(x, y);
-                if (slot == SandCylinderSandGrid.EMPTY) continue;
 
-                if (slot > paletteColors.Count) {
-                    unmappedSlots.Add(slot);
-                } else {
-                    sandColors.Add(paletteColors[slot - 1]);
+        // Both paths only need the SET of slots the starting picture uses — the checks below are
+        // about colours, not geometry — so the texture is decoded at its own resolution rather than
+        // built into a full pattern. Level does the real conversion later, once, in buildSandArea.
+        if (_sandTexture != null) {
+            if (_sandPattern != null) {
+                issues.Add("Both a sand texture and a sand pattern are assigned — the texture wins and the pattern is ignored. Clear one of them.");
+            }
+
+            if (SandPatternTextureConverter.tryCountSlots(_sandTexture, sandPalette, out int[] counts, out string textureError)) {
+                for (byte slot = 1; slot < counts.Length; slot++) {
+                    if (counts[slot] == 0) continue;
+                    if (slot > paletteColors.Count) unmappedSlots.Add(slot);
+                    else sandColors.Add(paletteColors[slot - 1]);
+                }
+            } else {
+                // Fatal on its own: Level falls back to the pattern (or to the random generator) and
+                // the level will not look like what was authored, so this must not be a soft note.
+                message = textureError;
+                return false;
+            }
+        } else {
+            for (int y = 0; y < _sandPattern.PaintHeight; y++) {
+                for (int x = 0; x < _sandPattern.PaintWidth; x++) {
+                    byte slot = _sandPattern.GetCell(x, y);
+                    if (slot == SandCylinderSandGrid.EMPTY) continue;
+
+                    if (slot > paletteColors.Count) {
+                        unmappedSlots.Add(slot);
+                    } else {
+                        sandColors.Add(paletteColors[slot - 1]);
+                    }
                 }
             }
         }

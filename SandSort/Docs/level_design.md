@@ -197,6 +197,81 @@ Guidelines:
 
 ---
 
+# Sand Pattern Authoring (PNG)
+
+A level's starting picture is a pixel-art PNG painted in Aseprite / Piskel / any lossless pixel
+editor. No code is written per picture, and no Unity work beyond dropping in the file and assigning
+it.
+
+Note what this picture is and is not: it is the level's **opening frame**. The moment extraction
+starts the sand falls, mixes and collapses — that erosion is the mechanic, not a defect. Author for
+a strong first read, not for a shape that survives play.
+
+## 1. Where the file goes
+
+`Assets/Game/CurrentGame/Data/SandPatterns/<LevelName>.png`
+
+Import settings are forced automatically for anything in that folder
+(`SandPatternTextureImportSettings`). Do not change them by hand — read/write, Point filter, no
+mipmaps, no compression, and the Android/iOS RGBA32 overrides all matter, and the last one silently
+breaks colour matching on device if it is lost.
+
+## 2. Resolution
+
+The board fixes the width; the PNG's own aspect ratio then fixes the height, so the sand area is a
+uniform scale of the picture.
+
+| | Rule |
+|---|---|
+| **Recommended (1:1, no resampling)** | width = `boardSize.x` × 34 px |
+| Also clean (exact 2× upscale) | width = `boardSize.x` × 17 px |
+| Height | a multiple of the same per-block size; **max 11 blocks = 374 px** |
+| Anything else | works, but non-integer upscaling makes edges ragged |
+
+Common widths: `boardSize.x` 5 → 170 px · 7 → 238 px · 8 → 272 px · 10 → 340 px.
+
+## 3. Palette
+
+Colours are matched **exactly** — there is no nearest-colour fallback, and a pixel that is off by
+1/255 is rejected with its hex and coordinate in the Console.
+
+So never eyedropper a colour out of a screenshot: the sand is rendered with per-pixel colour noise
+and the camera adds bloom, vignette and colour grading on top, so nothing on screen equals the real
+palette value. Get the palette as a file instead:
+
+> `Assets/Game/CurrentGame/Data/Sand/SandPalette.asset` → Inspector gear menu →
+> **Export Palette (.gpl for Aseprite/Piskel)**
+
+Load that `.gpl` in the paint tool and paint only from it.
+
+## 4. Alpha and anti-aliasing
+
+- **Alpha < 128 means EMPTY** — no sand at all. Use it for headroom above the sand's surface, or for
+  holes inside the picture. Alpha is checked before colour, so a transparent pixel is never read as
+  sand whatever its RGB happens to be.
+- Leftover space from height rounding is left empty at the **top**, never at the bottom — the bottom
+  row is where extraction reads.
+- **Turn anti-aliasing off.** Soft edges produce off-palette pixels and the import will reject the
+  file. Same for soft brushes, gradients and layer opacity below 100%.
+
+## 5. Assigning it to a level
+
+On the level asset (`SandLevelSO`), set **Sand → Sand Texture** to the PNG. That is the whole
+wiring; capacities, the sand area's size and the camera framing all follow from it automatically.
+
+Per-colour cell counts come straight from the PNG's pixel counts, and each colour's total Container
+capacity is derived from them — so a picture is balanced by construction. What still needs a human
+eye is the *distribution* (see Color Distribution below): a colour present as only a few hundred
+pixels makes a fast Container, a colour covering half the picture makes a slow one.
+
+## 6. The old hand-painted pattern still works
+
+`_sandPattern` (a `SandCylinderPatternData` painted in its own Inspector) remains as a fallback and
+older levels keep using it untouched. When both are assigned the **texture wins** and validation
+says so — clear one of them. New levels should use the PNG.
+
+---
+
 # Color Distribution
 
 Sand available in the SandCanvas per color should reasonably match what the level's Containers of that color need to fill.

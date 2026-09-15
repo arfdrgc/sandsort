@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a02f1fffa49004d9fa827d8dc21010ff, type: 3}
+  m_Name: SandPalette
+  m_EditorClassIdentifier: Assembly-CSharp::SandPaletteSO
+  _slots:
+  - name: WHITE
+    authorColor:
+      serializedVersion: 2
+      rgba: 4293063674
+  - name: RED
+    authorColor:
+      serializedVersion: 2
+      rgba: 4281221344
+  - name: BLUE
+    authorColor:
+      serializedVersion: 2
+      rgba: 4293809450
+  - name: ORANGE
+    authorColor:
+      serializedVersion: 2
+      rgba: 4280189168
+  - name: GREEN
+    authorColor:
+      serializedVersion: 2
+      rgba: 4282177874
+  - name: BLUE_LIGHT
+    authorColor:
+      serializedVersion: 2
+      rgba: 4294427471
+  - name: BLUE_DARK
+    authorColor:
+      serializedVersion: 2
+      rgba: 4288759565
+  - name: BROWN
+    authorColor:
+      serializedVersion: 2
+      rgba: 4282930553
+  - name: BROWN_LIGHT
+    authorColor:
+      serializedVersion: 2
+      rgba: 4286548129
+  - name: BROWN_DARK
+    authorColor:
+      serializedVersion: 2
+      rgba: 4280493886
+  - name: GREEN_LIGHT
+    authorColor:
+      serializedVersion: 2
+      rgba: 4286891905
+  - name: GREEN_DARK
+    authorColor:
+      serializedVersion: 2
+      rgba: 4280311323
+  - name: PURPLE
+    authorColor:
+      serializedVersion: 2
+      rgba: 4289734556
+  - name: PURPLE_LIGHT
+    authorColor:
+      serializedVersion: 2
+      rgba: 4291324090
+  - name: PURPLE_DARK
+    authorColor:
+      serializedVersion: 2
+      rgba: 4287370314
+  - name: PINK
+    authorColor:
+      serializedVersion: 2
+      rgba: 4284686057
+  - name: YELLOW
+    authorColor:
+      serializedVersion: 2
+      rgba: 4282117119
