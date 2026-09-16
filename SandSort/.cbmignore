@@ -1,0 +1,49 @@
+# codebase-memory-mcp ignore rules for the SandSort Unity project.
+# Assets/Game (MoowCore + CurrentGame), Assets/Editor, Assets/Plugins/Demigiant (DOTween,
+# used by game code), Docs, Packages and ProjectSettings stay indexed.
+
+# Unity/IDE generated, build and cache output
+Library/
+Temp/
+Logs/
+obj/
+UserSettings/
+Build/
+Builds/
+MemoryCaptures/
+Recordings/
+.utmp/
+.vs/
+.idea/
+*.csproj
+*.slnx
+*.sln
+
+# Captures / local artefacts / credentials
+Captures/
+ProfilerCaptures/
+Assets/Screenshots/
+npm-token/
+
+# Third-party plugins not referenced by gameplay code (verified 2026-09-16)
+Assets/Obi/
+Assets/com.unity.uiextensions@2.3.2/
+Assets/Toony Colors Pro/
+Assets/StylizedWater2/
+Assets/Epic Toon FX/
+Assets/JMO Assets/
+Assets/Samples/
+Assets/AppsFlyer/
+Assets/MaxSdk/
+Assets/FacebookSDK/
+Assets/ExternalDependencyManager/
+Assets/GeneratedLocalRepo/
+Assets/Adaptive Performance/
+Assets/TextMesh Pro/
+Assets/FatMachines/
+Assets/NaughtyAttributes/
+Assets/Plugins/Dreamteck/
+Assets/Plugins/GoogleUMP/
+Assets/Plugins/Android/
+Assets/Plugins/iOS/
+Assets/Plugins/tvOS/

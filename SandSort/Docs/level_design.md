@@ -106,8 +106,17 @@ Defines:
 
 Defines:
 
-- Total time allowed
+- Total time allowed (`SandLevelSO.timerSeconds`)
 - (Not yet defined: whether time can be gained mid-level, e.g. from combos or rewards)
+
+Runtime behaviour (decided 2026-09-16):
+
+- **Does not start when the level opens.** The level loads showing the full time, frozen.
+- **Starts on the first Container drag** — the moment the player first begins dragging any Container.
+- **Pauses while Settings is open** and **resumes from where it stopped** when Settings is closed.
+- **Stops on Win or Lose.** When time runs out it stops at `00:00` and the level is lost.
+- **Restart resets it** to the full time, and it again waits for the first drag before starting.
+- **UI format is `mm:ss`**, with seconds rounded up, so `00:00` only shows once time has actually run out.
 
 ## Difficulty
 

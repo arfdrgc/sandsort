@@ -257,6 +257,9 @@ public class ExtractionGrid : MonoBehaviour {
     void Update() {
         if (_sandExtraction == null) return;
         if (_container.isSealed || !_container.isAwake) return;
+        // Lose (time up) freezes progress with the timer; revive unlocks and extraction resumes here
+        // with its accumulators untouched.
+        if (_container.isInputLocked) return;
         if (_container.remainingCapacity <= 0) return;
 
         // One slot per active extraction point — see the THROUGHPUT note.

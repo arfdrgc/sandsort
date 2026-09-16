@@ -1,11 +1,14 @@
-using System.Collections;
 using DG.Tweening;
 using Moow;
-using Moow.Utility;
 using MoowCore;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
+// Level complete coin burst: coins pop out around the screen centre, then fly one after another into
+// the real Gold UI (UIGoldContainer.iconTarget). Each landing sends UI_GOLD_ANIMATION_PROGRESS with its
+// share of the amount, so the gold counter rises with the coins. The old coinTop counter (its own
+// background, icon and text under _canvasGroup) is no longer shown.
 public class CoinCollectController : BaseSingleton<CoinCollectController>
 {
     [SerializeField] private GameObject coinTurnGO, coinTop, coinsParent;
@@ -17,18 +20,19 @@ public class CoinCollectController : BaseSingleton<CoinCollectController>
 
     [SerializeField] private TextMeshProUGUI _coinText;
 
+    // Burst timing (seconds) and size. With 20 coins the last one lands after
+    // BURST_DURATION + HOLD + 19 * FLY_STAGGER + FLY_DURATION ≈ 1.5 s.
+    const float BURST_RADIUS_RATIO = 0.22f; // of the canvas width
+    const float BURST_DURATION = 0.25f;
+    const float BURST_STAGGER = 0.01f;
+    const float HOLD = 0.1f;
+    const float FLY_DURATION = 0.45f;
+    const float FLY_STAGGER = 0.035f;
+    const float COIN_SCALE = 3f;
+
     private void Start()
     {
         this.addListener<int>(Events.GIVE_COIN_ANIMATION, onGiveCoinAnim);
-        coinPos = new Vector3[coinCount];
-        coins = new GameObject[coinCount];
-
-        float width = ((float)Screen.width / 2) - 50;
-
-        for (int i = 0; i < coinCount; i++)
-        {
-            coinPos[i] = new Vector3(Random.Range(-width, width), Random.Range( -width * 2, -width / 2), 0);
-        }
     }
 
     private void OnDisable()
@@ -38,68 +42,83 @@ public class CoinCollectController : BaseSingleton<CoinCollectController>
 
     private void onGiveCoinAnim(UnityEngine.Object sender, Event<int> eventData)
     {
-        float tempAmount = eventData.data;
-        StartCoroutine(Collect(tempAmount));
+        burst(eventData.data);
     }
 
-    private IEnumerator Collect(float tempAmount)
+    void burst(int amount)
     {
-        float coinStart = InventoryManager.instance.money;
+        int count = Mathf.Max(1, coinCount);
+        RectTransform canvasRect = (RectTransform)canvas.transform;
+        UIGoldContainer gold = FindFirstObjectByType<UIGoldContainer>();
+        Vector3 target = targetWorldPosition(gold, canvasRect);
+        float radius = canvasRect.rect.width * BURST_RADIUS_RATIO;
 
-        _canvasGroup.alpha = 1;
-        coinTop.SetActive(true);
-
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < count; i++)
         {
-            GameObject ct = Instantiate(coinTurnGO, canvas.transform);
-            ct.transform.GetChild(1).gameObject.SetActive(false);
-            coins[i] = ct;
-            ct.transform.localPosition = coinPos[i];
-            ct.transform.DOScale(0f, 0f);
-            yield return new WaitForSeconds(0.01f);
-            ct.transform.DOScale(3f, 0.1f);
-        }
+            // Whole-number shares that add up to exactly `amount`.
+            int piece = amount / count + (i < amount % count ? 1 : 0);
 
-        Move(coinStart, tempAmount);
-        
-        coins = new GameObject[coinCount];
+            GameObject coin = Instantiate(coinTurnGO, canvas.transform);
+            hideBrokenChildren(coin);
+
+            Transform t = coin.transform;
+            t.localPosition = Vector3.zero;
+            t.localScale = Vector3.zero;
+            Vector3 offset = Random.insideUnitCircle * radius;
+
+            float burstDelay = i * BURST_STAGGER;
+            float flyDelay = BURST_DURATION + HOLD + i * FLY_STAGGER;
+
+            DOTween.Sequence()
+                .Insert(burstDelay, t.DOLocalMove(offset, BURST_DURATION).SetEase(Ease.OutBack))
+                .Insert(burstDelay, t.DOScale(COIN_SCALE, BURST_DURATION).SetEase(Ease.OutBack))
+                .Insert(flyDelay, t.DOMove(target, FLY_DURATION).SetEase(Ease.InSine))
+                .Insert(flyDelay, t.DOScale(COIN_SCALE * 0.5f, FLY_DURATION).SetEase(Ease.InSine))
+                .OnComplete(() => {
+                    arrive(gold, piece);
+                    Destroy(coin);
+                })
+                .SetLink(coin);
+        }
     }
 
-    private void Move(float coinStart, float tempAmount)
+    void arrive(UIGoldContainer gold, int piece)
     {
-        float delay = 0f;
-        float scaleDuration = 0.3f; //0.45f
-        float eachPiece = tempAmount / coinCount;
+        AudioPlayer.instance.playSFX(AudioFX.COIN_COLLECT);
+        this.dispatchEvent<float>(Events.UI_GOLD_ANIMATION_PROGRESS, piece);
 
-        for (int i = 0; i < coinCount; i++)
+        if (gold != null)
         {
-            Transform tempCoin = coins[i].transform;
-            tempCoin.DOScale(2f, scaleDuration).SetDelay(delay).SetEase(Ease.InBack);
-            tempCoin.DOLocalMove(new Vector3(coinPos[i].x - 100, coinPos[i].y - 100, 0), scaleDuration).SetDelay(delay);
+            Transform icon = gold.iconTarget;
+            icon.DOKill(true);
+            icon.DOPunchScale(Vector3.one * 0.25f, 0.12f, 1, 0f);
+        }
+    }
 
-            tempCoin.DOMove(coinTop.transform.position, scaleDuration)
-            .SetDelay(delay + scaleDuration)
-            .SetEase(Ease.OutSine)
-            .OnComplete(() => {
+    // The gold icon lives on the game scene's camera canvas, the coins on this overlay canvas: go
+    // through screen space to get the icon's position in this canvas.
+    Vector3 targetWorldPosition(UIGoldContainer gold, RectTransform canvasRect)
+    {
+        Transform icon = gold != null ? gold.iconTarget : coinTop.transform;
+        Canvas iconCanvas = icon.GetComponentInParent<Canvas>().rootCanvas;
+        Camera cam = iconCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : iconCanvas.worldCamera;
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(cam, icon.position);
+        RectTransformUtility.ScreenPointToWorldPointInRectangle(canvasRect, screen, null, out Vector3 world);
+        return world;
+    }
 
-                 AudioPlayer.instance.playSFX(AudioFX.COIN_COLLECT);
-                coinStart += eachPiece;
-                _coinText.text = Helper.AbbreviateNumber((int)coinStart).ToString();
-
-                coinTop.transform.DOScale(1.2f, 0.05f).OnComplete(() =>
-                {
-                    coinTop.transform.DOScale(1f, 0.05f);
-                });
-            });
-
-            tempCoin.DOScale(0f, 0f).SetDelay(delay + (scaleDuration * 2)).SetEase(Ease.InBack).OnComplete(()=> { Destroy(tempCoin.gameObject); });
-            delay += 0.05f;
+    // MoneyTurnAnim carries two children that do not render correctly on this canvas: an Image with no
+    // sprite (a white square) and "Sparks", a UIParticleSystem whose additive particle material
+    // (glow1_ADD, Particles/Standard Unlit) draws as black squares under URP. The old code hid Sparks by
+    // index (GetChild(1)); both are now hidden by what they are, and the animated coin stays as it is.
+    static void hideBrokenChildren(GameObject coin)
+    {
+        foreach (Image image in coin.GetComponentsInChildren<Image>(true))
+        {
+            if (image.sprite == null) image.enabled = false;
         }
 
-        DOVirtual.DelayedCall(2, ()=>
-        {
-            coinTop.SetActive(false);
-            _canvasGroup.alpha = 0;
-        });
+        Transform sparks = coin.transform.Find("Sparks");
+        if (sparks != null) sparks.gameObject.SetActive(false);
     }
 }

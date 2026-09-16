@@ -34,4 +34,4 @@ MonoBehaviour:
     color: 141
   _sandTexture: {fileID: 2800000, guid: b785787a523b4801a68bfb89b94005fa, type: 3}
   _sandPattern: {fileID: 0}
-  _timerSeconds: 300
+  _timerSeconds: 240

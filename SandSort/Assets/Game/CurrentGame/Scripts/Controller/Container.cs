@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using DG.Tweening;
 using UnityEngine;
 
 // Hold-and-drag piece per game_mechanics.md's Controls section. Arbitrary multi-cell shapes (see
@@ -37,6 +39,12 @@ public class Container : MonoBehaviour {
     // float comparison epsilon.
     const float SWEEP_SUBSTEP = 0.2f;
     const float COLLISION_EPSILON = 0.0001f;
+    // Shape complete wait: SandExtractionParticleEffect.SpawnGrain gives each grain a flight time of at
+    // most SandCylinderTunables.particleLifetime, jittered by up to x1.15. So particleLifetime x
+    // GameplayTunables.shapeCompleteParticleWaitMultiplier (1.15 by default) after the last grain was
+    // spawned — which is at the latest the frame this Container seals, because capacity is counted
+    // when the sand is removed — every grain aimed at this shape has landed.
+    float shapeCompleteParticleWaitMultiplier => _tuning != null ? _tuning.shapeCompleteParticleWaitMultiplier : GameplayTunables.DEFAULT_SHAPE_COMPLETE_PARTICLE_WAIT_MULTIPLIER;
 
     Board _board;
     // Not readonly on purpose: Unity's mid-Play domain reload (a script recompile while playing)
@@ -63,8 +71,27 @@ public class Container : MonoBehaviour {
     int _filledUnits;
     bool _sealed;
     bool _awake;
+    // Complete exit (seal -> wait for grains -> swell -> scale out -> effect -> disable). The tween is
+    // linked to this GameObject and the effect is parented under the Board, so a restart / next level
+    // (which destroys the whole Level) ends both with it.
+    float _grainMaxLifetime;
+    Sequence _completeExit;
+    GameObject _completeEffect;
+    bool _completeExitFinished;
+    // Selected outline: the renderers that draw the piece and the colour material they normally use.
+    Renderer[] _outlineTargets = System.Array.Empty<Renderer>();
+    Material _colorMaterial;
+    // Selected render order: while held, every renderer GameObject under this Container moves to the
+    // SelectedShape layer, which Moow_Renderer's SelectedShapeDepth / SelectedShapeBody RenderObjects
+    // passes redraw after all other opaques (see setSelectedRenderLayer). Original layers are kept
+    // here, per GameObject, until release/seal puts them back. Not readonly: see _colliders.
+    const string SELECTED_SHAPE_LAYER = "SelectedShape";
+    List<GameObject> _selectedLayerObjects = new();
+    List<int> _selectedLayerOriginals = new();
 
     bool _dragging;
+    // Set by Level on win/lose, cleared on revive: no new drag can start while it is set.
+    bool _inputLocked;
     // Corner slide in progress: the axis it is sliding on and the direction (+1/-1) it started in.
     // A sign of 0 means no slide is in progress — so a mid-Play domain reload zeroing these reads
     // as "not sliding", the safe state. See sweep().
@@ -88,7 +115,12 @@ public class Container : MonoBehaviour {
     // SandCylinderTunables.sandColors + 1) — see Level.sandColorIndexOf.
     public byte sandColorIndex => _sandColorIndex;
     public bool isSealed => _sealed;
+    // True once the complete exit has fully played (scale-out + complete effect finished), right
+    // before the Container disables itself. Level waits on this to announce the win.
+    public bool isCompleteExitFinished => _completeExitFinished;
     public bool isAwake => _awake;
+    // Level's win/lose lock (see setInputLocked). ExtractionGrid also stops extracting while it is set.
+    public bool isInputLocked => _inputLocked;
     public bool isDragging => _dragging;
     public int filledUnits => _filledUnits;
     public int capacityUnits => _capacityUnits;
@@ -117,9 +149,12 @@ public class Container : MonoBehaviour {
     // itself) — see ExtractionGrid's EXTRACTION BAND note for what it anchors.
     // unlitFillSource is the level's own sand material, passed straight through to the Shape's
     // sand-fill visual (ShapeSandFill). It is only ever COPIED there, never written to.
-    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning, Material unlitFillSource) {
+    // grainMaxLifetime is SandCylinderTunables.particleLifetime — only read, to know how long grains
+    // can still be flying at this shape after it seals (see shapeCompleteParticleWaitMultiplier).
+    public void initialize(Board board, ContainerData data, int capacityUnits, byte sandColorIndex, Material colorMaterial, Color fallbackColor, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning, Material unlitFillSource, float grainMaxLifetime) {
         _board = board;
         _tuning = tuning;
+        _grainMaxLifetime = Mathf.Max(0f, grainMaxLifetime);
 
         // Already rotated and normalized when the level named a Shape prefab — see
         // ContainerData.occupiedCells. This list is the only footprint this class knows about.
@@ -130,6 +165,7 @@ public class Container : MonoBehaviour {
         _capacityUnits = Mathf.Max(0, capacityUnits);
         _filledUnits = 0;
         _sealed = false;
+        _completeExitFinished = false;
         _awake = false;
 
         _shapeVisual = GetComponent<Shape>();
@@ -196,12 +232,78 @@ public class Container : MonoBehaviour {
             _colliders.Add(cell.GetComponent<Collider>());
             _cellVisuals.Add(cell.transform);
         }
+
+        // Whatever actually draws the piece gets the selected outline: the FBX when there is one,
+        // otherwise the cubes. Only with a colour material — the outline copy takes its look from it.
+        _colorMaterial = colorMaterial;
+        if (colorMaterial != null) {
+            _outlineTargets = fbxDrawsShape
+                ? fbxRenderers
+                : _cellVisuals.ConvertAll(cell => cell.GetComponent<Renderer>()).ToArray();
+        }
+    }
+
+    // Adds the tunables' outline materials to the piece's renderers while it is held, and removes them
+    // on release. The colour material stays first and untouched, so the piece draws exactly as
+    // before. The two extras draw no colour on the piece itself: the mask only writes stencil (after
+    // the piece, queue 2001) and the outline material only has its "Outline" pass, which Moow_Renderer's
+    // RenderObjects feature draws outside that stencil — i.e. around the silhouette. Shared assets for
+    // every piece: nothing is copied or written at runtime.
+    void setSelectedOutline(bool selected) {
+        if (_colorMaterial == null || _outlineTargets.Length == 0) return;
+
+        Material outline = _tuning != null ? _tuning.selectedOutlineMaterial : null;
+        Material mask = _tuning != null ? _tuning.selectedOutlineMaskMaterial : null;
+        if (selected && (outline == null || mask == null)) return;
+
+        Material[] materials = selected ? new[] { _colorMaterial, mask, outline } : new[] { _colorMaterial };
+        foreach (Renderer target in _outlineTargets) {
+            if (target != null) target.sharedMaterials = materials;
+        }
+    }
+
+    // Draws the held piece over its neighbours without moving it. Its renderers go to the
+    // SelectedShape layer; Moow_Renderer then redraws that layer after all opaques — first its
+    // DepthOnly pass with ZTest Always (replaces the neighbours' depth inside the piece's footprint
+    // with the piece's own), then its own materials with ZTest LEqual (so the piece still sorts
+    // against itself) — and the existing Outline pass runs last. Only the layer changes: materials,
+    // transform, colliders (picked by Collider.Raycast, layer-independent) and drag are untouched.
+    // Every renderer under the Container is moved, not just the FBX, so the sand fill and cavity
+    // floor redraw with it; transparent ones are filtered out by the passes' opaque queue range.
+    void setSelectedRenderLayer(bool selected) {
+        if (selected) {
+            if (_selectedLayerObjects.Count > 0) return;
+            int layer = LayerMask.NameToLayer(SELECTED_SHAPE_LAYER);
+            if (layer < 0) return;
+
+            foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true)) {
+                GameObject owner = renderer.gameObject;
+                if (_selectedLayerObjects.Contains(owner)) continue;
+                _selectedLayerObjects.Add(owner);
+                _selectedLayerOriginals.Add(owner.layer);
+                owner.layer = layer;
+            }
+            return;
+        }
+
+        for (int i = 0; i < _selectedLayerObjects.Count; i++) {
+            if (_selectedLayerObjects[i] != null) _selectedLayerObjects[i].layer = _selectedLayerOriginals[i];
+        }
+        _selectedLayerObjects.Clear();
+        _selectedLayerOriginals.Clear();
+    }
+
+    // Level locks gameplay input on win/lose and unlocks it on revive. A drag in progress is released
+    // normally, so the visual still settles onto its committed cell.
+    public void setInputLocked(bool locked) {
+        _inputLocked = locked;
+        if (locked && _dragging) endDrag();
     }
 
     void Update() {
         if (_sealed) return;
 
-        pollPointer();
+        if (!_inputLocked) pollPointer();
         updateVisual(Time.deltaTime);
     }
 
@@ -239,6 +341,8 @@ public class Container : MonoBehaviour {
         _dragging = true;
         _cornerLatchSign = 0f;
         _grabOffset = _board.worldToAnchorPoint(pointerWorld, _shape) - _visualAnchor;
+        setSelectedOutline(true);
+        setSelectedRenderLayer(true);
     }
 
     void dragTo(Vector3 pointerWorld) {
@@ -263,6 +367,8 @@ public class Container : MonoBehaviour {
     // settles onto it (updateVisual).
     void endDrag() {
         _dragging = false;
+        setSelectedOutline(false);
+        setSelectedRenderLayer(false);
     }
 
     // Keeps the authoritative grid position on the cell nearest the visual, updating Board
@@ -500,8 +606,73 @@ public class Container : MonoBehaviour {
     void seal() {
         _sealed = true;
         _dragging = false;
+        setSelectedOutline(false);
+        setSelectedRenderLayer(false);
         _board.free(this);
+        playCompleteExit();
+    }
+
+    // The shape stays on screen until the grains still flying at it have landed, swells slightly,
+    // scales out to 0, then the complete effect plays where it stood; only when that effect has
+    // finished is the Container disabled. Gameplay is already done at seal(): nothing here feeds back
+    // into fill, Board occupancy or the win check.
+    void playCompleteExit() {
+        float growScale = _tuning != null ? _tuning.completeGrowScale : GameplayTunables.DEFAULT_COMPLETE_GROW_SCALE;
+        float growDuration = _tuning != null ? _tuning.completeGrowDuration : GameplayTunables.DEFAULT_COMPLETE_GROW_DURATION;
+        float scaleOutDuration = _tuning != null ? _tuning.completeScaleOutDuration : GameplayTunables.DEFAULT_COMPLETE_SCALE_OUT_DURATION;
+
+        // Measured now, at full size: after the scale-out the renderers have no size left to measure.
+        Bounds shapeBounds = visibleBounds();
+
+        _completeExit?.Kill();
+        _completeExit = DOTween.Sequence()
+            .AppendInterval(_grainMaxLifetime * shapeCompleteParticleWaitMultiplier)
+            .Append(transform.DOScale(transform.localScale * growScale, growDuration).SetEase(Ease.OutQuad))
+            .Append(transform.DOScale(Vector3.zero, scaleOutDuration).SetEase(Ease.InQuad))
+            .OnComplete(() => playCompleteEffect(shapeBounds))
+            .SetLink(gameObject);
+    }
+
+    void playCompleteEffect(Bounds shapeBounds) {
+        GameObject prefab = _tuning != null ? _tuning.completeEffectPrefab : null;
+        if (prefab == null) {
+            _completeExitFinished = true;
+            gameObject.SetActive(false);
+            return;
+        }
+
+        // Parented under the Board (not this Container, which is at scale 0) so it is destroyed with
+        // the Level. Placed on the shape's front face so the burst is not hidden behind the piece.
+        Vector3 position = new Vector3(shapeBounds.center.x, shapeBounds.center.y, shapeBounds.min.z);
+        _completeEffect = Instantiate(prefab, position, Quaternion.identity, _board.transform);
+
+        float effectScale = _tuning != null ? _tuning.completeEffectScale : GameplayTunables.DEFAULT_COMPLETE_EFFECT_SCALE;
+        float worldScale = effectScale * Mathf.Max(shapeBounds.size.x, shapeBounds.size.y);
+        float parentScale = Mathf.Max(0.0001f, _board.transform.lossyScale.x);
+        _completeEffect.transform.localScale = Vector3.one * (worldScale / parentScale);
+
+        StartCoroutine(disableWhenEffectFinished(_completeEffect.GetComponent<ParticleSystem>()));
+    }
+
+    IEnumerator disableWhenEffectFinished(ParticleSystem effect) {
+        while (effect != null && effect.IsAlive(true)) yield return null;
+
+        if (_completeEffect != null) Destroy(_completeEffect);
+        _completeEffect = null;
+        _completeExitFinished = true;
         gameObject.SetActive(false);
+    }
+
+    Bounds visibleBounds() {
+        Bounds bounds = new Bounds(transform.position, Vector3.zero);
+        bool any = false;
+        foreach (Renderer renderer in GetComponentsInChildren<Renderer>()) {
+            if (!renderer.enabled || renderer is ParticleSystemRenderer) continue;
+            if (any) bounds.Encapsulate(renderer.bounds);
+            else { bounds = renderer.bounds; any = true; }
+        }
+        if (!any) bounds.size = Vector3.one * _board.cellSize;
+        return bounds;
     }
 
     void snapVisualToGridPosition() {

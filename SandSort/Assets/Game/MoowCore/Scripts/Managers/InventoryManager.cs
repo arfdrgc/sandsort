@@ -37,7 +37,8 @@ namespace MoowCore {
         }
 
         private void onReviveUsed(UnityEngine.Object sender, Event<object> eventData) {
-            decrease(GameDataManager.instance.reviveCost);
+            // GameFailurePopup sends the price of this revive (GameDataSO.reviveCosts, by revive count).
+            if (eventData.data is int cost) decrease(cost);
         }
 
 

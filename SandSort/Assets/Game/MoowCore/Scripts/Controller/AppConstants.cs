@@ -95,6 +95,8 @@ namespace Moow {
         static public string LEVEL_BOUNDS_CHANGED = "LEVEL_BOUNDS_CHANGED";
         static public string LEVEL_FAILED = "LEVEL_FAILED";
         static public string LEVEL_COMPLETED = "LEVEL_COMPLETED";
+        static public string LEVEL_TIMER_CHANGED = "LEVEL_TIMER_CHANGED";
+        static public string LEVEL_FIRST_DRAG = "LEVEL_FIRST_DRAG";
         static public string LEVEL_MONEY_EARNED = "LEVEL_MONEY_EARNED";
         static public string MONEY_CHANGED = "MONEY_CHANGED";
 

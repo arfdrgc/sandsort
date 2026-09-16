@@ -95,8 +95,21 @@ public class Level : MonoBehaviour, ILevel {
     BoardFrame _boardFrame;
     readonly List<Container> _containers = new();
 
+    // Timer: waits for the first Container drag, pauses while Settings is open, stops on Win/Lose.
+    // A restart builds a fresh Level, so all of this starts over from initialize().
     float _timeRemaining;
+    bool _timerStarted;
+    bool _timerPaused;
+    int _lastDispatchedSeconds = -1;
     bool _resolved;
+    // Won (all sealed, _resolved already set) but LEVEL_OBJECTIVE_COMPLETE not sent yet: it goes out
+    // once every Container reports its complete exit (animation + effect) as finished.
+    bool _winPending;
+
+    // LEVEL_READY_TO_PLAY goes out once per Level instance, on its first Update: by then initialize(),
+    // LevelGenerator's tutorial setup and every LEVEL_LOADED listener have run, and the sand renderer
+    // has had its first LateUpdate — the first frame the player's input can actually be taken.
+    bool _readyDispatched;
 
     public void initialize(LevelSO levelSO) {
         _levelSO = levelSO;
@@ -104,13 +117,11 @@ public class Level : MonoBehaviour, ILevel {
         SandLevelSO sandLevel = levelSO as SandLevelSO;
         if (sandLevel == null) {
             Debug.LogError("[Level::initialize] Assigned LevelSO is not a SandLevelSO — cannot build the Sand Idea core loop.");
-            this.dispatchEvent<object>(Events.LEVEL_READY_TO_PLAY, null);
             return;
         }
 
         if (_sandTunables == null) {
             Debug.LogError("[Level::initialize] Level prefab has no SandCylinderTunables assigned — cannot build the sand area.");
-            this.dispatchEvent<object>(Events.LEVEL_READY_TO_PLAY, null);
             return;
         }
 
@@ -134,9 +145,11 @@ public class Level : MonoBehaviour, ILevel {
         _cameraFramed = true;
 
         _timeRemaining = sandLevel.timerSeconds;
+        _timerStarted = false;
+        _timerPaused = false;
         _resolved = false;
-
-        this.dispatchEvent<object>(Events.LEVEL_READY_TO_PLAY, null);
+        _winPending = false;
+        dispatchTimer();
 
         setupCamera();
     }
@@ -321,6 +334,39 @@ public class Level : MonoBehaviour, ILevel {
             }
         }
         return scaled;
+    }
+
+    void OnEnable() {
+        this.addListener<object>(Events.UI_OPEN_SETTINGS, onSettingsOpened);
+        this.addListener<object>(Events.UI_CLOSE_SETTINGS, onSettingsClosed);
+        this.addListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
+    }
+
+    void OnDisable() {
+        this.removeListener<object>(Events.UI_OPEN_SETTINGS, onSettingsOpened);
+        this.removeListener<object>(Events.UI_CLOSE_SETTINGS, onSettingsClosed);
+        this.removeListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
+    }
+
+    void onSettingsOpened(Object sender, Event<object> e) {
+        _timerPaused = true;
+        refreshInputLock();
+    }
+
+    void onSettingsClosed(Object sender, Event<object> e) {
+        _timerPaused = false;
+        refreshInputLock();
+    }
+
+    // Only a time-out loss can be revived: the level resumes with GameDataSO.reviveTimeSeconds on the
+    // clock. The timer has already started (the player dragged before running out), so it keeps
+    // counting down right away.
+    void onReviveClicked(Object sender, Event<object> e) {
+        if (!_resolved || _timeRemaining > 0f) return;
+        _timeRemaining = GameDataManager.instance.reviveTimeSeconds;
+        _resolved = false;
+        refreshInputLock();
+        dispatchTimer();
     }
 
     void OnDestroy() {
@@ -595,7 +641,7 @@ public class Level : MonoBehaviour, ILevel {
             }
 
             Container container = containerObject.AddComponent<Container>();
-            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _sandAreaBottomWorld.y, _gameplayTunables, _sandMaterial);
+            container.initialize(_board, data, capacityByData[data], sandColorIndex, colorMaterial, sandColor, _sandExtraction, _sandAreaBottomWorld.y, _gameplayTunables, _sandMaterial, _sandTunables.particleLifetime);
             _containers.Add(container);
         }
     }
@@ -621,9 +667,23 @@ public class Level : MonoBehaviour, ILevel {
 
         setupCamera();
 
+        if (!_readyDispatched) {
+            _readyDispatched = true;
+            this.dispatchEvent<object>(Events.LEVEL_READY_TO_PLAY, null);
+            // PerspectiveCameraController listens to LEVEL_READY_TO_PLAY and moves the camera and its
+            // clip planes on the spot (see setupCamera's note), so re-assert the framing before this
+            // frame renders.
+            setupCamera();
+        }
+
+        if (_winPending && allCompleteExitsFinished()) {
+            _winPending = false;
+            this.dispatchEvent<object>(Events.LEVEL_OBJECTIVE_COMPLETE, null);
+        }
+
         if (_resolved) return;
 
-        _timeRemaining -= Time.deltaTime;
+        tickTimer();
 
         applyDepletionGuarantee();
 
@@ -640,9 +700,53 @@ public class Level : MonoBehaviour, ILevel {
         // fixed columns, but SandCylinderSandGrid's sand falls and spreads between columns.
     }
 
+    void tickTimer() {
+        if (!_timerStarted) {
+            foreach (Container container in _containers) {
+                if (container.isDragging) {
+                    _timerStarted = true;
+                    // Once per Level instance: the moment the level really starts (UIRestart waits for it).
+                    this.dispatchEvent<object>(Events.LEVEL_FIRST_DRAG, null);
+                    break;
+                }
+            }
+        }
+
+        if (_timerStarted && !_timerPaused) {
+            _timeRemaining = Mathf.Max(0f, _timeRemaining - Time.deltaTime);
+            dispatchTimer();
+        }
+    }
+
+    // Whole seconds, rounded up so the display only reads 00:00 when time has actually run out.
+    // Dispatched only when that value changes.
+    void dispatchTimer() {
+        int seconds = Mathf.CeilToInt(_timeRemaining);
+        if (seconds == _lastDispatchedSeconds) return;
+        _lastDispatchedSeconds = seconds;
+        this.dispatchEvent<int>(Events.LEVEL_TIMER_CHANGED, seconds);
+    }
+
     bool allContainersSealed() {
         foreach (Container container in _containers) {
             if (!container.isSealed) return false;
+        }
+        return true;
+    }
+
+    // Gameplay input lock for every Container: set on win/lose, cleared on revive. A fresh Level
+    // (restart / next level) builds unlocked Containers, so nothing has to clear it there.
+    void setInputLocked(bool locked) {
+        foreach (Container container in _containers) container.setInputLocked(locked);
+    }
+
+    // Gameplay (drag + extraction) is frozen while the level is resolved OR Settings is open. Recomputed
+    // from both, so closing Settings never unlocks a lost/won level and a revive never unlocks behind Settings.
+    void refreshInputLock() => setInputLocked(_resolved || _timerPaused);
+
+    bool allCompleteExitsFinished() {
+        foreach (Container container in _containers) {
+            if (!container.isCompleteExitFinished) return false;
         }
         return true;
     }
@@ -659,13 +763,17 @@ public class Level : MonoBehaviour, ILevel {
         }
     }
 
+    // The win is locked in now (timer and lose check stop), but announced only when the last shape's
+    // complete exit has really finished — see Update and Container.isCompleteExitFinished.
     void resolveWin() {
         _resolved = true;
-        this.dispatchEvent<object>(Events.LEVEL_COMPLETED, null);
+        _winPending = true;
+        setInputLocked(true);
     }
 
     void resolveLose() {
         _resolved = true;
+        setInputLocked(true);
         this.dispatchEvent<object>(Events.LEVEL_FAILED, null);
         this.dispatchEvent<object>(Events.FAIL_CONDITION_MET, null);
     }

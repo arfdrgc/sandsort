@@ -28,6 +28,27 @@ public class SandCylinderRenderer : MonoBehaviour {
     Material material;
     int builtWidth, builtHeight;
 
+    // CHANGE GATE (2026-09-16). The texture is a pure function of the grid's
+    // cells plus colorNoiseAmount and the sandColors palette, so on a frame
+    // where none of those changed the rebuild below would recompute the exact
+    // same pixels and re-upload them. On device (Mi 9T, IL2CPP) that cost
+    // 11.3 ms/frame on the 306x306 9-colour grid *while the sand was static* —
+    // 42% of a 27 ms frame. These fields record the inputs of the last
+    // completed draw; LateUpdate returns early when they all still match.
+    //
+    // Why no frame that needs a redraw can be skipped: this component carries
+    // DefaultExecutionOrder(100) and has only a LateUpdate, so it is the last
+    // thing in the frame to touch the sand (Step and extraction run in Update,
+    // the grid's active sub-steps in its own order-0 LateUpdate). Any write
+    // from any of those has therefore already bumped grid.CellsVersion by the
+    // time this gate reads it. hasDrawn is false until a draw completes — and
+    // it resets with every other non-serialized field on a domain reload — so
+    // the first frame, a fresh Init and a mid-Play recompile all redraw.
+    bool hasDrawn;
+    ulong drawnCellsVersion;
+    float drawnNoiseAmount;
+    Color[] drawnPalette;
+
     void Awake() {
         grid = GetComponent<SandCylinderSandGrid>();
     }
@@ -50,6 +71,7 @@ public class SandCylinderRenderer : MonoBehaviour {
         texture.wrapMode = TextureWrapMode.Clamp;
         pixels = new Color32[builtWidth * builtHeight];
         if (material != null) material.mainTexture = texture;
+        hasDrawn = false; // a brand-new texture and an all-zero pixel buffer must be filled
     }
 
     void LateUpdate() {
@@ -58,6 +80,13 @@ public class SandCylinderRenderer : MonoBehaviour {
 
         float noiseAmount = grid.Tunables.colorNoiseAmount;
         Color[] palette = grid.Tunables.sandColors;
+
+        // Read the version BEFORE the loop reads the cells: recording an older
+        // version than the grid actually has can only cause an extra redraw
+        // next frame, never a missed one.
+        ulong version = grid.CellsVersion;
+        if (!NeedsRedraw(version, noiseAmount, palette)) return;
+
         int w = grid.Width;
         int h = grid.Height;
         for (int y = 0; y < h; y++) {
@@ -80,6 +109,27 @@ public class SandCylinderRenderer : MonoBehaviour {
         }
         texture.SetPixels32(pixels);
         texture.Apply(false);
+
+        hasDrawn = true;
+        drawnCellsVersion = version;
+        drawnNoiseAmount = noiseAmount;
+        if (drawnPalette == null || drawnPalette.Length != palette.Length) drawnPalette = new Color[palette.Length];
+        System.Array.Copy(palette, drawnPalette, palette.Length);
+    }
+
+    // True when anything the texture depends on has changed since the last
+    // completed draw. The palette is compared element-wise (17 entries at most)
+    // rather than by reference, so editing a colour in the Inspector mid-Play
+    // still repaints.
+    bool NeedsRedraw(ulong version, float noiseAmount, Color[] palette) {
+        if (!hasDrawn) return true;
+        if (version != drawnCellsVersion) return true;
+        if (noiseAmount != drawnNoiseAmount) return true;
+        if (drawnPalette == null || drawnPalette.Length != palette.Length) return true;
+        for (int i = 0; i < palette.Length; i++) {
+            if (drawnPalette[i] != palette[i]) return true;
+        }
+        return false;
     }
 
     static float Hash01(int x, int y) {

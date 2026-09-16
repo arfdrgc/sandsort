@@ -120,7 +120,8 @@ public class Shape : MonoBehaviour {
     // that: the plate no longer straddles the corner it is placed on, it hangs off it into the piece,
     // so it reads at the larger size. The badge follows from the text, so this one value sizes the
     // whole readout, and deriving it from the cell keeps every Shape's readout the same size.
-    const float FILL_READOUT_SCALE_PER_CELL = 0.1114f;
+    // 2026-09-16: +10% (0.1114 -> 0.1225) for readability; text and badge grow together.
+    const float FILL_READOUT_SCALE_PER_CELL = 0.1225f;
 
     public ShapeType type => _type;
     public ShapeRotation rotation => _rotation;
@@ -250,7 +251,9 @@ public class Shape : MonoBehaviour {
         if (_sandFill != null) _sandFill.setFill(normalized);
 
         if (_fillPercentageText == null) return;
-        int percent = Mathf.RoundToInt(Mathf.Clamp01(normalized) * 100f);
+        // 100 only once the piece is actually full. Rounding let 99.5%+ read as 100 while sand was
+        // still missing, so anything short of full is floored and capped at 99.
+        int percent = normalized >= 1f ? 100 : Mathf.Min(99, Mathf.FloorToInt(Mathf.Clamp01(normalized) * 100f));
         _fillPercentageText.text = $"<b>{percent}<size=65%>%</size></b>";
         refreshFillBadge();
     }

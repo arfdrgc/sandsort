@@ -1,0 +1,49 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6796e98d92a764eabb2a3412fd254322, type: 3}
+  m_Name: SandSort_Demo3_Ladybug_5x6_Level
+  m_EditorClassIdentifier: Assembly-CSharp::SandLevelSO
+  _levelPrefab: {fileID: 3500330111660482340, guid: 6cadf0c9289244df8da0cd252d847e23, type: 3}
+  _difficulty: 0
+  _levelTutorial: {fileID: 0}
+  _expandBottom: 0
+  _centerFactor: 0
+  _colorPalette: {fileID: 0}
+  _boardSize: {x: 5, y: 6}
+  _containers:
+  - position: {x: 0, y: 0}
+    shape: {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 161
+  - position: {x: 2, y: 0}
+    shape: {fileID: 9144006800819988532, guid: eb6d9aa4765fc4b28bc71792c42bed31, type: 3}
+    rotation: 1
+    cells:
+    - {x: 0, y: 0}
+    color: 113
+  - position: {x: 3, y: 0}
+    shape: {fileID: 6946165922638697856, guid: fdcc9d0da5c764e5e95f74a99b5a85d2, type: 3}
+    rotation: 1
+    cells:
+    - {x: 0, y: 0}
+    color: 121
+  - position: {x: 1, y: 2}
+    shape: {fileID: 4235498481140829280, guid: f7b72a06ccd5f44dd92ab63c53b006b0, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 102
+  _sandTexture: {fileID: 2800000, guid: 6cae360887c7349c9ad74c7abd1b1053, type: 3}
+  _sandPattern: {fileID: 0}
+  _timerSeconds: 240

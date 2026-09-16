@@ -13,7 +13,8 @@ MonoBehaviour:
   m_Name: GameData
   m_EditorClassIdentifier: 
   skipItemIfNotRequiredPercent: 50
-  reviveCost: 900
+  reviveCosts: 840300006c070000540b0000
+  reviveTimeSeconds: 20
   addSlotCost: 1500
   addSlotLevel: 0
   levelCompleteReward: 50

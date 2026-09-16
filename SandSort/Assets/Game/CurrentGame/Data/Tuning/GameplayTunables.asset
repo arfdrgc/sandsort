@@ -13,8 +13,16 @@ MonoBehaviour:
   m_Name: GameplayTunables
   m_EditorClassIdentifier: Assembly-CSharp::GameplayTunables
   _dragFollowSharpness: 30
-  _dragMaxSpeedCells: 15
+  _dragMaxSpeedCells: 25
   _releaseSnapSharpness: 22
   _releaseSnapMinSpeedCells: 4
   _extractionArrivalToleranceCells: 0.035
   _gridSandGapCells: 0.22352941
+  _selectedOutlineMaterial: {fileID: 2100000, guid: ce903621e47ce40fa8653caa9b8e20b1, type: 2}
+  _selectedOutlineMaskMaterial: {fileID: 2100000, guid: 8c5df83cd537844aea8d7b76084ffb25, type: 2}
+  _shapeCompleteParticleWaitMultiplier: 0.35
+  _completeGrowScale: 1.08
+  _completeGrowDuration: 0.08
+  _completeScaleOutDuration: 0.18
+  _completeEffectPrefab: {fileID: 164832, guid: cc4edba986607ba48b17927b27d25e4e, type: 3}
+  _completeEffectScale: 0.45

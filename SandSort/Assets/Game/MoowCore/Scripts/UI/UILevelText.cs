@@ -9,7 +9,6 @@ public class UILevelText : MonoBehaviour {
     [SerializeField] bool _isUGUItext;
     [SerializeField] float _customTextSize;
     [SerializeField] float _customNumSize;
-
     void OnEnable() => this.addListener<object>(Events.LEVEL_READY_TO_PLAY, onLevelReady);
     void OnDisable() => this.removeListener<object>(Events.LEVEL_READY_TO_PLAY, onLevelReady);
 

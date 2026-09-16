@@ -55,6 +55,19 @@ public class SandCylinderSandGrid : MonoBehaviour {
     int subStepParity;
     float subStepAccumulator;
 
+    // Monotonic "the grid changed" counter. SetCell below is the ONLY
+    // `cells[...] =` in this file, so every mutation path — SpawnCell,
+    // FillInitialLayers, PaintFromPattern, ExtractColor, ResolveCaveInBias and
+    // StepCell — bumps this for free; Resize bumps it separately because it
+    // replaces the array outright rather than writing through SetCell. A reader
+    // can therefore tell whether anything moved since it last looked without
+    // diffing the grid. SandCylinderRenderer uses it to skip its full texture
+    // rebuild + upload on frames where nothing changed: measured on device
+    // (Mi 9T, IL2CPP) that rebuild cost 11.3 ms/frame on the 306x306 9-colour
+    // grid and ran even while the sand was completely static.
+    ulong cellsVersion;
+    public ulong CellsVersion => cellsVersion;
+
     public int Width => width;
     public int Height => height;
     public int TotalSandCount { get; private set; }
@@ -76,6 +89,7 @@ public class SandCylinderSandGrid : MonoBehaviour {
         width = Mathf.Max(1, w);
         height = Mathf.Max(1, h);
         cells = new byte[width * height];
+        cellsVersion++; // a fresh (all-EMPTY) array is a content change SetCell never sees
         settledStreak = new byte[width * height];
         fallProgress = new float[width * height];
         colorCounts = new int[tunables.sandColors.Length + 1];
@@ -93,7 +107,10 @@ public class SandCylinderSandGrid : MonoBehaviour {
 
     public byte GetCell(int x, int y) => cells[y * width + x];
 
-    void SetCell(int x, int y, byte v) => cells[y * width + x] = v;
+    void SetCell(int x, int y, byte v) {
+        cells[y * width + x] = v;
+        cellsVersion++;
+    }
 
     public bool InBounds(int x, int y) => x >= 0 && x < width && y >= 0 && y < height;
 
@@ -845,6 +862,36 @@ public class SandCylinderSandGrid : MonoBehaviour {
         maxX = Mathf.Min(width - 1, maxX + margin);
         minY = Mathf.Max(1, minY - margin);
         maxY = Mathf.Min(height - 1, maxY + margin);
+
+        // WORK CEILING (2026-09-16). The pass count handed in is proportional to
+        // Time.deltaTime, so before this clamp every slow frame bought the next
+        // one more passes — measured on device, a Canyon collapse escalated
+        // 0.4 -> 36 -> 72 -> 107 -> 158 ms over four frames and topped out at
+        // ~230 ms, because the only brake was the pass-count cap
+        // (activeSubStepsPerTick x safetyTicksPerFrame), which on a full-grid
+        // active region is ~12 frame budgets of work. Cost is
+        // passes x activeArea StepCell evaluations, so the fix is to bound that
+        // product rather than the pass count: this is the first point where the
+        // area is known, which is why the clamp lives here and not in
+        // LateUpdate.
+        //
+        // The rate above stays the target, so flow speed remains
+        // framerate-independent whenever the budget is not the binding limit;
+        // when it is, the excess is dropped rather than banked (the caller has
+        // already debited the accumulator) so a hitch cannot be paid back later.
+        // Integer arithmetic only — no wall-clock timing, so the pass count
+        // stays a pure function of the accumulator and the region's size.
+        //
+        // The floor of 1 is deliberate: extraction opens its holes during
+        // Update and the renderer draws at DefaultExecutionOrder(100), so the
+        // region must get at least one pass here every frame or the P1
+        // hanging-row fix regresses.
+        if (tunables.maxCellsPerFrame > 0) {
+            int activeArea = (maxX - minX + 1) * (maxY - minY + 1);
+            int budgetPasses = tunables.maxCellsPerFrame / Mathf.Max(1, activeArea);
+            if (budgetPasses < 1) budgetPasses = 1;
+            if (passes > budgetPasses) passes = budgetPasses;
+        }
 
         for (int pass = 0; pass < passes; pass++) {
             subStepParity ^= 1;

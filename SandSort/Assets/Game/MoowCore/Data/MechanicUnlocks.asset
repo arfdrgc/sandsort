@@ -13,11 +13,11 @@ MonoBehaviour:
   m_Name: MechanicUnlocks
   m_EditorClassIdentifier: 
   _mechanicUnlocks:
-  - _mechanicSprite: {fileID: 0}
-    _mechanicUnrevealedSprite: {fileID: 0}
+  - _mechanicSprite: {fileID: 21300000, guid: c0ab29c5542a04a2e84d1e57e4da2faf, type: 3}
+    _mechanicUnrevealedSprite: {fileID: 21300000, guid: c0ab29c5542a04a2e84d1e57e4da2faf, type: 3}
     _unlockLevelData: {fileID: 11400000, guid: cf6a022b595b440efaa8bece7e1b08c3, type: 2}
-    _unlockLevel: 1
-    _name: 
-    _unlockedTitle: 
-    _unlockedText: 
+    _unlockLevel: 5
+    _name: Feature
+    _unlockedTitle: Unlock Feature Title
+    _unlockedText: Unlock Feature Text
   _levels: {fileID: 11400000, guid: 373b3dceb1ab3427d8a8553a1ce8380b, type: 2}

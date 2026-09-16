@@ -19,6 +19,10 @@ namespace MoowCore {
         private float multiplyScoreNum;
         [SerializeField] Animator multiplyScoreAnimator;
 
+        // One reward per shown popup: Continue and the rewarded-ad callback both go through
+        // claimReward, so a double tap or a late ad callback cannot pay or advance the level twice.
+        bool _rewardClaimed;
+
         protected override void OnEnable() {
             _claimButton.onClick.AddListener(onClaimClick);
             _doubleButton.onClick.AddListener(onDoubleClaimClick);
@@ -60,6 +64,7 @@ namespace MoowCore {
             AudioPlayer.instance.playSFX(AudioFX.POSITIVE_1);
             base.show(data);
             SetDefault();
+            _rewardClaimed = false;
 
             banner.transform.localScale = Vector3.zero;
             banner.transform.localPosition = Vector3.zero;
@@ -106,10 +111,24 @@ namespace MoowCore {
         }
 
         private void onClaimClick() {
+            if (_rewardClaimed) return;
             AudioPlayer.PlaySFX(AudioFX.UI_BUTTON_CLICK);
-            this.dispatchEvent<int>(Events.GIVE_COIN_ANIMATION, GameDataManager.instance.levelCompleteReward);
+            claimReward(GameDataManager.instance.levelCompleteReward);
+        }
+
+        // The coin burst goes first: UIGoldContainer registers the amount as "still flying" before
+        // MONEY_CHANGED arrives, so its counter rises with the coins instead of jumping. The money is
+        // added (and saved) on the claim itself, then the existing next-level flow runs.
+        void claimReward(float value) {
+            if (_rewardClaimed) return;
+            _rewardClaimed = true;
+            _claimButton.interactable = false;
+            _doubleButton.interactable = false;
+
+            int amount = Mathf.RoundToInt(value);
+            this.dispatchEvent<int>(Events.GIVE_COIN_ANIMATION, amount);
+            InventoryManager.instance.increase(amount);
             this.dispatchEvent<object>(Events.UI_NEXT_LEVEL_CLICK, null);
-            DOVirtual.DelayedCall(0.1f, ()=>{ InventoryManager.instance.increase(GameDataManager.instance.levelCompleteReward); });
         }
 
         // private void onDoubleClaimClick() {
@@ -147,6 +166,7 @@ namespace MoowCore {
 
         private void onDoubleClaimClick()
     {
+        if (_rewardClaimed) return;
         _doubleButton.interactable = false;
         multiplyScoreAnimator.enabled = false;
 
@@ -158,21 +178,9 @@ namespace MoowCore {
             {
                 case AdResult.Rewarded:
 
-                    float amount =
+                    claimReward(
                         GameDataManager.instance.levelCompleteReward +
-                        multiplyScoreNum;
-
-                    this.dispatchEvent<int>(
-                        Events.GIVE_COIN_ANIMATION,
-                        (int)amount);
-
-                    this.dispatchEvent<object>(
-                        Events.UI_NEXT_LEVEL_CLICK,
-                        null);
-
-                    DOVirtual.DelayedCall(
-                        0.1f,
-                        () => InventoryManager.instance.increase(amount));
+                        multiplyScoreNum);
 
                     break;
 

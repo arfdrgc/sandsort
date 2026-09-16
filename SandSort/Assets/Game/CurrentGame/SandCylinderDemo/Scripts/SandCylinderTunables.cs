@@ -106,6 +106,8 @@ public class SandCylinderTunables : MonoBehaviour {
     [Range(0, 64)] public int activeSubStepMargin = 24;
     [Tooltip("How long, in seconds, the active region remembers where sand moved. A single frame's changes cover only the thin strip moving right now; remembering a short history keeps the whole collapsing slope inside the region.")]
     [Range(0.05f, 2f)] public float activeSubStepWindowSeconds = 0.5f;
+    [Tooltip("HARD CEILING on sub-step work per frame, counted in StepCell evaluations (passes x active-region area). The rate above stays the target — activeSubStepsPerTick x sandSimulationSpeed passes per second, which is what keeps the flow speed framerate-independent — but a frame never runs more than this many evaluations, so a big collapse can no longer buy itself an unbounded frame. Needed because the pass count is proportional to Time.deltaTime: measured on device (Mi 9T, IL2CPP) a Canyon collapse escalated 0.4 -> 36 -> 72 -> 107 -> 158 ms over four frames, each slow frame earning the next one more passes, until the old passes-only cap (activeSubStepsPerTick x 8) stopped it at ~230 ms. Budgeting the WORK instead breaks that feedback: passes = min(rate target, maxCellsPerFrame / activeArea), floored at 1 so extraction's holes still close before the renderer draws. Deterministic — no wall-clock timing is involved. Calibration: ~60-80k evaluations per millisecond on a Mi 9T, so 400000 is roughly 5-7 ms. 0 = no ceiling (the old unbounded behaviour; diagnostic A/B only, do not ship).")]
+    [Min(0)] public int maxCellsPerFrame = 400000;
 
     // The actual block-grid dimensions in use — blockGridWidth/blockGridHeight
     // UNLESS customPattern is assigned, in which case the pattern's own

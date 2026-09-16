@@ -44,6 +44,8 @@ namespace MoowCore {
 
 
         private void onLevelFailed(Object sender, Event<object> eventData) {
+            // A second FAIL_CONDITION_MET must not orphan the first pending show.
+            _showFailedTween?.Kill();
             _showFailedTween = DOVirtual.DelayedCall(_showFailDelay, () => {
                 _failurePopup.show(null);
             });
@@ -61,6 +63,8 @@ namespace MoowCore {
         }
 
         private void onLevelLoaded(Object sender, Event<object> eventData) {
+            // A restart / next level inside the fail delay must not show the popup on the new level.
+            _showFailedTween?.Kill();
             _successPopup.hide();
             _failurePopup.hide();
         }

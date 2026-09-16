@@ -1,0 +1,8 @@
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/CMakeFiles/edit_cache.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/CMakeFiles/rebuild_cache.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/GameActivity/CMakeFiles/game.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/GameActivity/CMakeFiles/edit_cache.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/GameActivity/CMakeFiles/rebuild_cache.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/FramePacing/CMakeFiles/swappywrapper.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/FramePacing/CMakeFiles/edit_cache.dir
+/Users/arifdurgec/Unity Projeleri/GitHubProjects/sandsort/SandSort/.utmp/Debug/312f4v36/arm64-v8a/FramePacing/CMakeFiles/rebuild_cache.dir

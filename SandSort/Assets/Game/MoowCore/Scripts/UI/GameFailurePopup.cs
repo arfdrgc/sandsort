@@ -24,7 +24,7 @@ namespace MoowCore {
         }
 
         protected override void Start() {
-            _reviveCost.text = "" + GameDataManager.instance.reviveCost;
+            _reviveCost.text = "" + GameDataManager.instance.currentReviveCost;
         }
 
         private void onRetryClicked() {
@@ -36,7 +36,11 @@ namespace MoowCore {
         private void onReviveClicked() {
             _reviveButton.interactable = false;
             AudioPlayer.instance.playSFX(AudioFX.UI_BUTTON_CLICK);
-            this.dispatchEvent<object>(Events.UI_REVIVE_CLICKED, null);
+            // Price this revive BEFORE counting it, and send the price with the event, so the charge
+            // does not depend on which UI_REVIVE_CLICKED listener runs first.
+            int cost = GameDataManager.instance.currentReviveCost;
+            GameDataManager.instance.registerRevive();
+            this.dispatchEvent<object>(Events.UI_REVIVE_CLICKED, cost);
             hide();
         }
 
@@ -49,8 +53,10 @@ namespace MoowCore {
             base.show(data);
             _popupContainerArea.DOScale(1, _fadeInDuration).SetEase(Ease.OutBack);
             float currentGold = InventoryManager.instance.money;
+            int reviveCost = GameDataManager.instance.currentReviveCost;
+            _reviveCost.text = "" + reviveCost;
             _retryButton.interactable = true;
-            _reviveButton.interactable = currentGold >= GameDataManager.instance.reviveCost;
+            _reviveButton.interactable = currentGold >= reviveCost;
             AudioPlayer.instance.playSFX(AudioFX.LEVEL_FAILED);
         }
 

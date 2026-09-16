@@ -3,7 +3,137 @@
 Rolling status file. Read this first when resuming work; it records where things
 actually stand, not what was planned. Design specs live in `Docs/`.
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-16 (end of day)
+
+---
+
+## Resume here — open work as of 2026-09-16
+
+Nothing from 2026-09-16 is committed; all changes below are in the working tree on purpose.
+
+1. **Demo level 3 (Ladybug)** — created but NOT verified end to end. Play it (by hand or with the
+   solver approach used for L2/L4) and confirm it completes; watch the BLUE_LIGHT T4 parking.
+2. **Demo levels feel** — L1 (25 s) and L2 v2 / L4 v2 complete, but L2/L4 needed ~23–29 automated
+   moves with parks because of colour residue. Hand-play the demo order 1→4 and judge the flow.
+3. **Device checks** — selected-shape render order and a real touch drag (all tests so far used
+   reflection-driven drags).
+4. **Win/Lose leftovers** — `UIRestart` stays visible on fail; revive does not resume music;
+   `LEVEL_FAILED` has no listeners.
+5. **Save state** — `DataSO.level` is 1, so the next Play starts Demo 1 (list index 1).
+
+---
+
+## Game UI session — 2026-09-16 (session note)
+
+Status: **done in the Editor, Play-tested from BaseScene, no new Console errors. No commit.**
+
+### Selected shape render order — DONE
+- The held shape draws **Normal shapes → Selected Shape Body → Selected Shape Outline**,
+  with its transform untouched (no X/Y/Z change).
+- New layer `SelectedShape` (6) in `ProjectSettings/TagManager.asset`.
+- `Assets/Settings/Moow_Renderer.asset`, all at `AfterRenderingOpaques`, in this order:
+  1. `SelectedShapeDepth` — layer SelectedShape, `DepthOnly`, ZTest Always + write.
+  2. `SelectedShapeBody` — layer SelectedShape, `UniversalForward` / `UniversalForwardOnly` /
+     `SRPDefaultUnlit`, own materials, ZTest LEqual + write, stencil Always/Keep.
+  3. Existing Outline `RenderObjects` — now ZTest Always, no depth write (the
+     `ShapeSelectedOutlineMask` stencil still keeps it outside the piece).
+- `Container.setSelectedRenderLayer` moves the shape's renderer GameObjects to the layer on press
+  and restores their original layers on release and on seal.
+- `selectedShapeZOffset` / `selectionLift` removed from code, `GameplayTunables` and its asset.
+
+### Restart button — DONE
+- `UIRestart`: hidden and inactive on level open and on every `LEVEL_LOADED` (first load,
+  restart, next level). Shows and becomes interactable 5 s (`_showDelayAfterFirstDrag`) after the
+  level's **first drag**, not after load. Click behaviour unchanged. A pending show is cancelled on
+  win (`LEVEL_OBJECTIVE_COMPLETE`).
+- New event `Events.LEVEL_FIRST_DRAG`, dispatched once per Level from `Level.tickTimer` when the
+  timer starts.
+
+### Not done yet
+- Verify the selected-shape render order (RenderObjects depth/stencil overrides + mask stencil) on
+  a real device.
+- Short test with a real touch drag. Play tests drove the drag through `Container.beginDrag`.
+
+### Win flow step 1 — DONE (Play-tested from BaseScene)
+- `Level.resolveWin` sets `_resolved` at once (timer and lose check stop) and `_winPending`; it
+  no longer sends `LEVEL_COMPLETED` (that one stays MoowCore's "going to the next level" event).
+- `Container.isCompleteExitFinished` turns true at the real end of the complete exit (after the
+  StarExplosion stops, or right away if there is no effect prefab), just before `SetActive(false)`.
+- `Level.Update` sends `LEVEL_OBJECTIVE_COMPLETE` once, when every Container reports that. No timer
+  or estimated duration is involved. `GameMenuCanvasUI` opens the success popup on that event.
+- Verified on the tutorial level (2 containers, driven by `forceComplete`, timer set to 0.5 s):
+  last seal f3092 → scale-out ends and effect starts f3111 → effect ends f3232 → event + popup
+  f3233. The event came exactly once; no `FAIL_CONDITION_MET` or `LEVEL_COMPLETED`; time left
+  stayed at 0.17 s the whole time. No new Console errors.
+
+### Win/Lose flow — still open
+- ~~Input is not locked after win/lose~~ — DONE: `Level.setInputLocked` → `Container.setInputLocked`
+  (lock in `resolveWin`/`resolveLose`, unlock in `onReviveClicked`). A drag in progress is released
+  via `endDrag`; only `pollPointer` is skipped, `updateVisual` still runs. Restart/next level builds
+  unlocked Containers. Play-tested (drag via reflection; a real touch was not simulated).
+- ~~Extraction continues behind the fail popup~~ — DONE: `Container.isInputLocked` (read-only) +
+  `ExtractionGrid.Update` returns while it is set. Lose freezes fill and sand count at once; revive
+  resumes at the same rate (accumulators untouched). Play-tested on the tutorial level: ORANGE set to
+  cap-500 while extracting ~50-70/frame, lost the same frame; 150 frames with no fill change and no
+  seal; after revive it filled again from the next frame, sealed at +10 f, and the win event came
+  169 frames later (after the exit), not on the revive frame. Restart: fresh unlocked Containers,
+  extraction works.
+- ~~Settings popup does not block drag or extraction~~ — DONE (`Level.cs` only):
+  `onSettingsOpened`/`onSettingsClosed` set `_timerPaused` and call `refreshInputLock()`, which
+  locks from `_resolved || _timerPaused`; `onReviveClicked` uses it too. Play-tested: Settings
+  opened mid-drag releases the drag, fill/sand/time freeze for 60 f and resume on close; on a lost
+  level Settings open/close keeps the lock; revive behind Settings stays locked with time frozen
+  until close; Settings during win pending keeps the lock and the win event came once; restart is
+  normal. Not covered: a restart/next level while Settings is open (new Level starts unpaused).
+- ~~`_showFailedTween` not killed on `LEVEL_LOADED`~~ — DONE: `GameMenuCanvasUI` kills it in
+  `onLevelLoaded` and before creating a new one in `onLevelFailed`. Play-tested: normal lose still
+  shows the popup ~0.25 s later; a retry 0.083 s after the lose kills the pending show and the new
+  level stays popup-free and playable; a second `FAIL_CONDITION_MET` kills the first tween and the
+  popup opens once. Music could not be checked (the music source has no clip in the Editor).
+- Also noted: `UIRestart` stays visible on fail; revive does not resume music; `LEVEL_FAILED`
+  has no listeners.
+
+### Level complete reward + coin burst — DONE (Play-tested from BaseScene)
+- `GameSuccessPopup.claimReward(value)`: one claim per shown popup (`_rewardClaimed`, reset in
+  `show`). Continue and the rewarded-ad `Rewarded` branch both use it; it disables both buttons, sends
+  `GIVE_COIN_ANIMATION`, calls `InventoryManager.increase` right away (the 0.1 s DelayedCall is gone),
+  then `UI_NEXT_LEVEL_CLICK`. `onDoubleClaimClick` returns once claimed.
+- `CoinCollectController`: coins pop out around the screen centre and fly into
+  `UIGoldContainer.iconTarget` (~1.46 s for 20 coins); each landing sends
+  `UI_GOLD_ANIMATION_PROGRESS` with an integer share and punches the icon. The old coinTop counter is
+  never shown. Hidden per coin: the sprite-less child Image (white square) and `Sparks` (its
+  glow1_ADD / Particles/Standard Unlit material draws black squares on the UI canvas under URP).
+- `UIGoldContainer`: holds back gold announced by `GIVE_COIN_ANIMATION` (`_pendingAnimated`) so
+  `MONEY_CHANGED` no longer jumps ahead of the coins; the counter reaches the saved money on the last coin.
+- Verified: double Continue + late claimReward + Double after claim → +50 once, one level advance;
+  Double (ads primary set to the stub at runtime) + second Double + Continue + claimReward(999) →
+  +70 once. Save values restored after the test. In the Editor `AdsService` has no provider, so
+  rewarded ads return Failed.
+
+---
+
+## Demo levels 1–4 (5×6) — created 2026-09-16, not committed
+
+`_levels` = `[SandBuckets2_5x4, Demo1_YellowDuck, Demo2_Watermelon, Demo3_Ladybug, Demo4_Clownfish]`.
+PNGs in `Data/SandPatterns/SandSort_Demo*_5x6.png` (170×170, 100 % filled), levels in
+`Data/Levels/SandSort_Demo*_5x6_Level.asset` (board 5×6, timer 240 s).
+
+| Level | Colours | Shapes (start) | Play result |
+|---|---|---|---|
+| 1 Yellow Duck | YELLOW, BLUE | 2x2 (0,0), 3x1 (2,0) | completes, 25 s (v1, unchanged) |
+| 2 Watermelon (v2) | RED, GREEN_DARK, YELLOW | 2x2 (0,2), T4 (0,0), L3 (3,0) | completes, 32 s, 23 moves / 7 parks |
+| 3 Ladybug | RED, BROWN_DARK, GREEN, BLUE_LIGHT | 2x2 (0,0), 2x1 r90 (2,0), L3 r90 (3,0), T4 (1,2) | PNG ↔ grid OK, no start overlap; **NOT verified end to end** (untouched since v1) |
+| 4 Clownfish (v2) | ORANGE, WHITE, BLUE, YELLOW | U5 (0,0), 2x1 (0,2), S4 r90 (3,0), 2x1 (3,3) | completes, ~48 s |
+
+Learned (don't re-derive):
+- Every colour leaves 20–120 cells of residue on top of neighbouring colours; a shape only reaches
+  100 % after the colour under that residue is drained, so levels need back-and-forth by design.
+- Two 3-wide shapes can never pass each other on a 5-wide board. If the upper one cannot reach
+  100 % on its own, the level deadlocks (v1 of L2 and L4). v2 uses 2-wide shapes for RED (L2) and
+  BLUE (L4), and L4's eye is WHITE instead of an enclosed BLUE.
+- Extraction here runs ~1500–4000 cells/s per shape; one colour drains in 3–12 s.
+- Test harness note: calling `dragTo` by reflection on a container that sealed mid-drag re-registers
+  it on the Board (ghost occupancy). Real input cannot do this (sealed Update returns early).
 
 ---
 
@@ -202,10 +332,10 @@ StepCell peeling the surface, not frame order. Horizontal dangling is
 
 ### Open
 
-- **Device profiling (IL2CPP).** Cost scales with passes × active-region area:
-  the 306-row Canyon grid is ~6.5 ms/frame in the Editor at peak (the active box
-  spans the full height); the 170-row grid ~2 ms. If too expensive on device,
-  16 passes ≈ 2/3 the cost at 5.8 s flow.
+- ~~**Device profiling (IL2CPP).**~~ **Closed 2026-09-16** — profiled on a
+  Xiaomi Mi 9T and fixed in two stages; see *Sand performance on device* below.
+  The Editor estimate (~6.5 ms Canyon / ~2 ms Buckets) understated the device by
+  more than an order of magnitude at peak.
 
 ### Notes for the next session
 
@@ -214,14 +344,172 @@ StepCell peeling the surface, not frame order. Horizontal dangling is
   `PlayerLoop` injection (PreUpdate / PostLateUpdate) or gate on
   `Time.frameCount`; measure what is drawn at the start of PostLateUpdate.
   Remove injected systems afterwards.
-- Level redirects for tests were done in memory only. On disk
-  `0_Temp_Level_List.asset → _testLevel` = Toucan
-  (`SandSort_Toucan7_9x10_Level`); the Editor held an **unsaved** in-memory
-  change to SandBuckets from the user — check before saving the project.
+- **`_testLevel` is Editor-only** (`LevelListSO.get` wraps it in
+  `#if UNITY_EDITOR`), so a player build ignores it and loads `_levels` /
+  `_repeatingLevels` instead — a device build pointed only via `_testLevel`
+  fails with *"Assigned LevelSO is not a SandLevelSO"*. For device tests
+  repoint `_levels[0]` **and** `_repeatingLevels[0]`, and restore afterwards.
+  On disk as of 2026-09-16: `_levels[0]` / `_repeatingLevels[0]` =
+  `SandSort_Test_Level`, `_testLevel` = `SandSort_SandBuckets2_5x4_Level`
+  (restored and verified byte-identical after the device runs).
 - MCP `manage_camera` screenshots land in `Assets/Screenshots/` (creates
   `.meta`); move them out / delete after use.
 - `CLAUDE.md` *Current work status* still says the sand simulation "has not been
   modified" — stale since this work (grid sub-steps + renderer execution order).
+
+---
+
+## Sand performance on device — Stage 1 + Stage 2, in code (2026-09-16)
+
+Status: **in code, measured on a Xiaomi Mi 9T (60 Hz, IL2CPP development
+build), accepted for the 30 FPS target. No commit.** Files touched:
+`SandCylinderSandGrid.cs`, `SandCylinderRenderer.cs`,
+`SandCylinderTunables.cs`. `Level.prefab` and every existing tuning value are
+untouched (`activeSubStepsPerTick` still 24, `sandSimulationSpeed` 45,
+`colorNoiseAmount` 0.2). StepCell, extraction, the active-region logic and the
+`Step()` catch-up were not changed.
+
+### The two problems found on device
+
+1. **The renderer redrew every frame even when nothing moved.**
+   `SandCylinderRenderer.LateUpdate` rebuilt and re-uploaded the whole texture
+   unconditionally: **11.3 ms/frame on Canyon while the sand was static**, 42 %
+   of a 27 ms idle frame.
+2. **The sub-step pass count fed back on itself.** Passes came from
+   `Time.deltaTime × activeSubStepsPerTick × sandSimulationSpeed`, so a slow
+   frame bought the *next* frame more passes. Measured escalation on Canyon:
+   `sub` 0.40 → 36.3 → 71.9 → 106.7 → **157.9 ms** with the frame at 202 ms; a
+   second dig peaked at **233.8 ms sub-step / 281 ms frame**. `GC.Alloc` was
+   0.002 ms, so this is the loop, not GC. The only brake was the
+   `activeSubStepsPerTick × 8` = 192-pass cap, ≈12× a frame's budget.
+
+### Stage 1 — renderer change gate
+
+Monotonic `cellsVersion` in `SandCylinderSandGrid.SetCell` (the only
+`cells[...] =` in the file, so every mutation path bumps it for free; `Resize`
+bumps it separately because it replaces the array). The renderer records the
+version, `colorNoiseAmount` and the `sandColors` palette of its last completed
+draw and returns early when all still match. `DefaultExecutionOrder(100)` plus
+LateUpdate-only means the renderer is the last thing in the frame to touch the
+sand, so no frame that needs a redraw can be skipped.
+
+Result: Canyon idle renderer **11.281 → 0.004 ms** (0 of 965 frames did work),
+Buckets extraction 3.68 → 0.39 ms, no visual regression. **FPS did not move**
+(37.1 → 36.8): the freed time went into `Gfx.WaitForPresentOnGfxThread`
+(2.9 → 9.9 ms) because the frame becomes present/vsync-bound once the CPU drops
+near the deadline. Real CPU work per idle Canyon frame fell ~24 → ~18 ms. The
+gate buys headroom a sub-step budget can spend; it is not an FPS win by itself.
+
+### Stage 2 — deterministic cell budget
+
+New tunable `maxCellsPerFrame` (default 400000, **a starting value, not final
+tuning**). In `RunActiveSubSteps`, at the first point where the active area is
+known, work is bounded by the *product* rather than the pass count:
+
+```
+passes = min(rate target, maxCellsPerFrame / activeArea)   // floored at 1
+```
+
+Integer arithmetic only — no stopwatch, no wall-clock, determinism preserved.
+The floor of 1 is deliberate: extraction opens its holes in Update and the
+renderer draws at order 100, so the region must get at least one pass per frame
+or the P1 hanging-row fix regresses. The P1 frame order is unchanged:
+Step → extraction → sub-steps → renderer. Clamp observed live: Buckets 13
+passes vs a 27-pass rate target, Canyon 4 vs 27.
+
+### Measured, P1 vs Stage 2 (Mi 9T)
+
+Canyon, 36,839 logged frames across 5 windows and ~10 real digs:
+
+| Metric | P1 | **Stage 2** |
+|---|---|---|
+| Peak sub-step | **233.8 ms** | **14.60 ms** |
+| Sub-step during motion | escalating | p50 7.83 / p90 9.67 / p99 12.23 ms |
+| Frames with sub-step ≥100 ms | yes, 2 independent digs | **0** |
+| Frames with sub-step ≥20 ms | yes | **0** |
+| Peak frame | **281 ms** | 68.3 ms |
+| Idle | 27.8 ms / 36.0 FPS | unchanged (Stage 2 only acts during motion) |
+| Motion frames | — | 29.3 ms / 34.2 FPS |
+
+The only two frames ≥100 ms in the whole run were **level loads**
+(`sub` ≈ 0.1 ms, `upd` = 0, renderer doing its first full draw) — not
+sub-steps. The tight p50–p99 spread is the signature of a hard ceiling.
+
+SandBuckets, ORANGE then YELLOW, same order as the P1 measurement:
+
+| Metric | P1 (Editor) | **Stage 2 (device)** |
+|---|---|---|
+| YELLOW t90 | 5.3 s | **5.68 s** |
+| YELLOW settle | 7.5 s | **9.26 s** (video) / **9.36 s** (profiler) |
+| Sub-step during flow | 10.75 ms sustained, 16.35 ms peak | 7.31 ms avg, 15.32 ms peak |
+| Flow FPS | — | 24.4 ms / 41.0 FPS |
+
+Two independent instruments agreed on the flow length to within 0.1 s. The
+~5.3 s / 7.5 s flow character is preserved; it is **not** pushed toward the
+no-sub-step regime (26 s flow / >45 s settle).
+
+Horizontal hanging rows, measured from lossless device frames:
+
+| Metric | Canyon E0 | Canyon P1 | **Canyon S2** | Buckets E0 | Buckets P1 | **Buckets S2** |
+|---|---|---|---|---|---|---|
+| Frames with a 2+ cell row | 12.5 % | 0.1 % | **0 / 26** | 37.0 % | 11.6 % | **18 % (2/11)** |
+| Longest run (cells) | 8 | 2 | **1.2** | 14 | 5 | **4.0** |
+| Runs in extraction band | 437 | 0 | **0** | 583 | 9 | **0** |
+
+Both levels sit in the P1 regime, not E0. The two metrics that do not depend on
+sampling luck — longest run and extraction-band runs — are at or better than P1
+on both levels. The Buckets frame percentage is a 2-of-11 point estimate whose
+confidence interval spans P1 comfortably; it cannot resolve a difference at the
+11 % level.
+
+### Device calibration (use this to tune `maxCellsPerFrame`)
+
+**~55,000 StepCell evaluations per millisecond** on a Mi 9T, plus ~0.6 ms fixed
+cost for the full-grid diff scan. So `maxCellsPerFrame ≈ 55000 × target_ms`:
+400000 → ~7.8 ms (current), ~165000 for a 3 ms budget, ~800000 if 15 ms is
+acceptable. 30 FPS is met at 400000 with room to spare; **60 FPS is not
+reachable by tuning this value alone** — during motion the sand alone costs
+sub 7.8 + renderer 7.6 + Step 2.3 ≈ 17.7 ms.
+
+### Two Stage-3 candidates this exposed (not started)
+
+- The active region keeps burning a full budget for
+  `activeSubStepWindowSeconds` (0.5 s) *after* the sand has stopped: 923 frames
+  × 7.88 ms = **24.6 s of passes with zero visual effect** in one session.
+- The full-grid diff scan in `RunActiveSubSteps` costs **0.59 ms (Canyon) /
+  0.21 ms (Buckets) every idle frame**, whether or not anything changed.
+
+### Measurement toolchain (reusable, no code changes needed)
+
+- Remote `UnityEditorInternal.ProfilerDriver` over WiFi:
+  `GetAvailableProfilers()` → `AndroidPlayer(...)`, then
+  `GetRawFrameDataView(frame, 0)` summed per `GetSampleName`. Automatic
+  MonoBehaviour markers (`Assembly-CSharp.dll!::SandCylinderSandGrid.LateUpdate()
+  [Invoke]`) isolate sub-steps from `Step()` with no instrumentation. Profiler
+  overhead is negligible (23.84 ms attached vs 23.92 ms detached).
+- `EditorApplication.update` + `SessionState` writing a per-frame CSV survives
+  the ~2000-frame ring buffer, which otherwise rolls a peak off in ~54 s.
+- **Stage 1's gate doubles as a free motion detector**: the renderer does work
+  exactly on the frames where cells changed, which is how flow and settle times
+  above were measured.
+- `dumpsys SurfaceFlinger --latency` present timestamps for profiler-independent
+  FPS. `dumpsys gfxinfo` is useless (Unity GameActivity renders on its own GL
+  surface). GPU time is unreadable on this GL ES 3.2 path — use
+  `Gfx.WaitForPresentOnGfxThread` as a vsync-bound proxy.
+- MIUI blocks every touch-injection path (`input`, `monkey`, raw `sendevent`),
+  so device playtests need the user's own fingers. Launch with
+  `am start -n com.moowgames.sandsort/com.unity3d.player.UnityPlayerGameActivity`
+  — `monkey` pauses/resumes the activity, which blanks the sand texture and
+  removes Containers (a separate bug, still unfixed).
+- Grid sizes for pixel analysis: Canyon 306×306, Buckets 170×170 (from the
+  pattern PNGs).
+- **`screenrecord` h264 is not trustworthy for hanging-row counts** on this
+  content: it reported 25.4 % of frames and a 16.3-cell longest run on Buckets,
+  where lossless `screencap` on the same regime gave 18 % and 4.0 cells. It also
+  turns UI slide animations into "runs" hundreds of cells long. Use raw
+  `adb exec-out screencap` (~1.0 s/frame, 16-byte header then RGBA) and drop any
+  run ≥20 cells as a UI edge. Validate any such detector with a positive control
+  (paint a synthetic bar) *and* on static frames before trusting a zero.
 
 ---
 
@@ -384,7 +672,11 @@ machine-even in places. Concretely:
 4. Then, and only then, revisit the deferred items: Checker Window, palette
    authority refactor (Faz 2), build optimisation (Faz 3).
 
-5. Sand feel: profile active sub-steps on device (IL2CPP) before tuning
-   further; the flow speed, 45° V and hanging-row fix are otherwise closed.
+5. Sand feel: device profiling is **done** and Stages 1–2 are in code (see
+   *Sand performance on device*). What is left there: settle on a final
+   `maxCellsPerFrame` (400000 is a starting value that meets 30 FPS), decide
+   whether 60 FPS is a goal at all (it needs more than this one knob), and the
+   two Stage-3 candidates — the 0.5 s of wasted passes after the sand stops, and
+   the per-idle-frame full-grid diff scan.
 
 No commits have been made for any of this work.
