@@ -265,10 +265,12 @@ public class Shape : MonoBehaviour {
     //
     // Runtime-built on purpose: the quad goes under VisualRoot, which placeVisualRoot has already
     // rotated and shifted, so the fill lands on occupiedCells without this class knowing the rotation.
-    public void setSandFillSource(Material unlitSource, Material colorMaterial) {
+    // `tuning` is the Level's GameplayTunables (null = the defaults); the fill reads its knobs live.
+    public void setSandFillSource(Material unlitSource, Material colorMaterial, GameplayTunables tuning = null) {
         if (unlitSource == null || _visualRoot == null || _canonicalCells == null || _canonicalCells.Count == 0) return;
 
         if (_sandFill == null) _sandFill = gameObject.AddComponent<ShapeSandFill>();
+        _sandFill.setTuning(tuning);
         _sandFill.configure(_visualRoot, _canonicalCells, _cellWorldSize, unlitSource);
 
         // Same two materials also drive the darkened cavity floor behind the sand — a separate,

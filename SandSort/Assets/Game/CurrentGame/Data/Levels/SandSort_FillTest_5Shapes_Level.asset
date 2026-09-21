@@ -50,5 +50,6 @@ MonoBehaviour:
     cells:
     - {x: 0, y: 0}
     color: 171
+  _sandTexture: {fileID: 0}
   _sandPattern: {fileID: 11400000, guid: 65ee15787bbec454cb3741f942d75451, type: 2}
-  _timerSeconds: 9999
+  _timerSeconds: 300

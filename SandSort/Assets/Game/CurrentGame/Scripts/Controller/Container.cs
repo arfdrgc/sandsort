@@ -210,7 +210,7 @@ public class Container : MonoBehaviour {
             if (_shapeVisual != null) _shapeVisual.setFillBadgeMaterial(unlitFillSource);
             // Same colour again for the sand that fills the piece, so there is still exactly one
             // colour source per Container.
-            if (_shapeVisual != null) _shapeVisual.setSandFillSource(unlitFillSource, colorMaterial);
+            if (_shapeVisual != null) _shapeVisual.setSandFillSource(unlitFillSource, colorMaterial, _tuning);
         }
 
         foreach (Vector2Int offset in _shape) {

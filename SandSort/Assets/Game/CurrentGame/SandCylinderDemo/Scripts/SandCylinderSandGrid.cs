@@ -490,7 +490,11 @@ public class SandCylinderSandGrid : MonoBehaviour {
     // so a caller can place visuals (e.g. extraction particles) at the exact
     // cells this call removed rather than guessing from the shaft range. Purely
     // additive bookkeeping — it does not change which cells are removed.
-    public int ExtractColor(int xStart, int xEnd, int yStart, int yEnd, byte colorIndex, int maxCells, List<Vector2Int> removedCellsOut = null) {
+    //
+    // When diagonalSpread is true the window also gets the 45-degree wings
+    // described at DiagonalColumnFloor — same budget, same per-column cap, same
+    // ascending-Y order; only the set of reachable columns/rows grows.
+    public int ExtractColor(int xStart, int xEnd, int yStart, int yEnd, byte colorIndex, int maxCells, List<Vector2Int> removedCellsOut = null, bool diagonalSpread = false) {
         if (maxCells <= 0 || colorIndex == EMPTY) return 0;
         xStart = Mathf.Clamp(xStart, 0, width - 1);
         xEnd = Mathf.Clamp(xEnd, xStart + 1, width);
@@ -499,13 +503,19 @@ public class SandCylinderSandGrid : MonoBehaviour {
 
         int maxPerColumn = Mathf.Max(1, tunables.maxCellsPerColumnPerTick);
 
+        int spread = diagonalSpread ? yEnd - yStart : 0;
+        int scanXStart = Mathf.Max(0, xStart - spread);
+        int scanXEnd = Mathf.Min(width, xEnd + spread);
+
         extractionCandidatesBuffer.Clear();
-        for (int x = xStart; x < xEnd; x++) {
+        for (int x = scanXStart; x < scanXEnd; x++) {
+            int columnYStart = DiagonalColumnFloor(x, xStart, xEnd, yStart);
+            if (columnYStart >= yEnd) continue; // wing has not reached this column below the ceiling
             int columnCount = 0;
             for (int y = 0; y < yEnd; y++) {
                 byte c = GetCell(x, y);
                 if (c != colorIndex) continue; // empty or a different color — skip past it, keep climbing
-                if (y >= yStart) {
+                if (y >= columnYStart) {
                     extractionCandidatesBuffer.Add(new Vector2Int(x, y));
                     columnCount++;
                     // Caps how many cells a single tick can pull from THIS
@@ -719,6 +729,27 @@ public class SandCylinderSandGrid : MonoBehaviour {
         }
     }
 
+    // The lowest row column x may extract from — the ONE place the extraction
+    // window's shape is defined, shared by ExtractColor and HasReachableColor so
+    // the two can never disagree. Inside the vertical window [xStart, xEnd) it is
+    // simply yStart. Outside it, d = how many columns x lies beyond the window's
+    // nearest edge, and the 45-degree wing reaches that column from row
+    // yStart + d - 1: one column out already at the bottom row, one more column
+    // per row higher up —
+    //
+    //     A A A H H H A A A    yStart + 2
+    //       A A H H H A A      yStart + 1
+    //         A H H H A        yStart
+    //
+    // The ceiling is the caller's: a floor at or above yEnd means the wing does
+    // not reach x at all. When the wings are off every scanned column is inside
+    // the window, so this always returns yStart and nothing changes.
+    static int DiagonalColumnFloor(int x, int xStart, int xEnd, int yStart) {
+        if (x < xStart) return yStart + (xStart - x) - 1;
+        if (x >= xEnd) return yStart + (x - (xEnd - 1)) - 1;
+        return yStart;
+    }
+
     // Non-mutating existence check, mirroring ExtractColor's own reachability
     // rule (any matching cell anywhere within [yStart, yEnd) counts, not
     // just the lowest occupied cell in a column — see ExtractColor's doc
@@ -727,15 +758,20 @@ public class SandCylinderSandGrid : MonoBehaviour {
     // extract there — e.g. to decide per-cube eligibility based on the
     // cube's actual world position and extraction range rather than a
     // single fixed column range.
-    public bool HasReachableColor(int xStart, int xEnd, int yStart, int yEnd, byte colorIndex) {
+    public bool HasReachableColor(int xStart, int xEnd, int yStart, int yEnd, byte colorIndex, bool diagonalSpread = false) {
         if (colorIndex == EMPTY) return false;
         xStart = Mathf.Clamp(xStart, 0, width - 1);
         xEnd = Mathf.Clamp(xEnd, xStart + 1, width);
         yStart = Mathf.Clamp(yStart, 0, height - 1);
         yEnd = Mathf.Clamp(yEnd, yStart + 1, height);
 
-        for (int x = xStart; x < xEnd; x++) {
-            for (int y = yStart; y < yEnd; y++) {
+        // Same window as ExtractColor, wings included — see DiagonalColumnFloor.
+        int spread = diagonalSpread ? yEnd - yStart : 0;
+        int scanXStart = Mathf.Max(0, xStart - spread);
+        int scanXEnd = Mathf.Min(width, xEnd + spread);
+
+        for (int x = scanXStart; x < scanXEnd; x++) {
+            for (int y = DiagonalColumnFloor(x, xStart, xEnd, yStart); y < yEnd; y++) {
                 if (GetCell(x, y) == colorIndex) return true;
             }
         }

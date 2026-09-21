@@ -111,7 +111,8 @@ MonoBehaviour:
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
   maxCellsPerColumnPerTick: 6
-  extractionRangeY: 0.7
+  extractionRangeY: 0.35
+  extractionDiagonalSpread: 1
   extractionNeighborPrimeRadius: 1
   extractionCaveInLeftBias: 0.5
   extractionPrimeMaxEmptyGap: 3
@@ -138,3 +139,4 @@ MonoBehaviour:
   activeSubStepsPerTick: 24
   activeSubStepMargin: 24
   activeSubStepWindowSeconds: 0.5
+  maxCellsPerFrame: 400000

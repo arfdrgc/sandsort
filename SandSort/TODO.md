@@ -3,11 +3,145 @@
 Rolling status file. Read this first when resuming work; it records where things
 actually stand, not what was planned. Design specs live in `Docs/`.
 
-**Last updated:** 2026-09-16 (end of day)
+**Last updated:** 2026-09-17 (end of day)
 
 ---
 
-## Resume here — open work as of 2026-09-16
+## Resume here — open work as of 2026-09-17
+
+Nothing from 2026-09-16 or 2026-09-17 is committed; all changes are in the working tree on purpose.
+
+1. **`_pourOriginCells` edge case (`ShapeSandFill.cs`)** — at runtime the field was observed as an
+   EMPTY array (not null) on every Container. `recomputeOrigin` only null-checks it, so a second
+   `configure` call throws `IndexOutOfRange` on `_origins[0]`. Same code as HEAD; the normal game
+   calls `configure` once, so it does not show today. Fix = also require `Length > 0` (matches the
+   field's own "null/empty = centroid" comment). Not fixed — out of scope for the shading work.
+2. **Win/Lose leftovers** — `UIRestart` stays visible on the Lose screen; revive does not resume
+   music; `LEVEL_FAILED` has no listeners.
+3. **Demo level 3 (Ladybug)** — created but NOT verified end to end. Play it (by hand or with the
+   solver approach used for L2/L4) and confirm it completes; watch the BLUE_LIGHT T4 parking.
+4. **Demo levels feel** — L1 (25 s) and L2 v2 / L4 v2 complete, but L2/L4 needed ~23–29 automated
+   moves with parks because of colour residue. Hand-play the demo order 1→4 and judge the flow.
+   Re-check after the 45° extraction change (it makes shapes reach more sand).
+5. **Device checks** — selected-shape render order, a real touch drag (all tests so far used
+   reflection-driven drags), and how readable the Z-only sand fill + edge shading are on a phone
+   (the game camera is nearly front-on, so 25 % vs 100 % reads mostly through wall exposure).
+   Edge darken in the asset is now **0.258** (user-set; tested value was 0.10) — confirm it still
+   reads as depth, not as a border.
+6. **Real-input fill test** — the new fill was verified on real L4/T4/U5/Plus5/Z4 and 1x1 shapes,
+   but 2x2 and the multi-cell masks were partly measured by re-configuring a live `ShapeSandFill`;
+   nothing was filled by an actual drag + extraction yet.
+7. **`ShapeCavityFloor` square corners** — its floor quad is still square, so a small dark triangle
+   shows past the rounded FBX corner (independent of fill). Same rounded-mask idea would fix it.
+   Not done (the fill work was scoped to `ShapeSandFill.cs`).
+8. **AudioManager / success popup NullReferenceExceptions** — seen in the Console during a
+   2026-09-17 Play run: `AudioManager.Update` (line 57) and `AudioManager.generateAudioSourceIfNeeded`
+   via `GameSuccessPopup.show` ← `Level.Update` (level complete). No `ShapeSandFill` frame in any
+   trace — **not related to the sand-fill changes**. Why the level completed in that run was not
+   investigated. Separately, recompiling while the Editor is in Play produced NREs once; stop Play
+   before compiling.
+9. **Save state** — not re-checked on 2026-09-17. Today's Play runs loaded a 17 × 1x1 level and later
+   a 5-shape level (T4, L4, U5, Plus5, Z4), and one run reached level complete. Check `DataSO.level`
+   before the next Play test.
+10. **Publisher feedback leftovers** — sand-pour particles still aim at the centroid `PourTarget`
+    (not at the fill surface); decide whether that needs a pass now that the fill has no pile.
+
+---
+
+## Session — 2026-09-17 (publisher feedback)
+
+Status: **done in the Editor, Play-tested from BaseScene. No commit.**
+
+### 45° extraction coverage — DONE (earlier session the same day)
+- `SandCylinderTunables.extractionDiagonalSpread` (default false, so the demo scenes are unchanged),
+  set to **on** in `Level.prefab`.
+- Coverage = the vertical window H = [xStart,xEnd)×[yStart,yEnd) plus 45° wings A: a column `d`
+  cells outside H is reachable from row `yStart + d - 1`. Never above `yEnd`, never past the grid X
+  edges. The geometry lives only in `SandCylinderSandGrid.DiagonalColumnFloor`, shared by
+  `ExtractColor` and `HasReachableColor`. `ExtractionGrid.cs` untouched.
+- User decisions: no spread cap; `extractionRangeY` stays 0.7 (29-row band, wings ≈ 0.85 block per
+  side); no H-over-A priority on the same row.
+- Verified: `diagonal=false` identical to the old algorithm (300 random trials); still 1600/s per
+  point; sand conserved. Side effect: a 2x2 now drains the uncovered middle block (≈76 % of sampled
+  cells in the test). If reach feels greedy, the dial is `extractionRangeY` or a future cap — do
+  not change the geometry without asking.
+
+### Shape sand fill — Z-only progress — DONE
+- Publisher "bottom-up" = from the cavity FLOOR toward the camera along Z, **not** a level rising in
+  screen Y. (A Y-height fill was built first and rejected; don't reintroduce it.)
+- The radial centroid heap is gone. The picture is a uniform layer over the whole mask: no level
+  line, no origin, rotation-invariant. Progress is shown only by `applyDepth` (Z `-0.08` → `-0.44`,
+  linear in fill), which was already there and is unchanged.
+- Below `COVER_FILL = 0.12` grains are hash-scattered evenly over the mask so the layer does not pop
+  in; solid above. Brightness gain `DEEP_GAIN 1.00` → `RIM_GAIN 1.25` with fill. Grain
+  (`GRAIN_NOISE 0.14`), lerp (`FILL_SHARPNESS 7`), `REBUILD_EPSILON` and `PourTarget` unchanged.
+- Verified on 1x1, 2x2, L4, L4 r90, T4, T4 r90 at 5/25/50/75/100 %: quad Z exactly the lerp;
+  coverage 100 % from 25 %; screen-lower vs upper half identical (no Y gradient); per-cell coverage
+  equal; nothing drawn outside the mask. Real `Update` path (setFillPercent → lerp) checked too.
+
+### Rounded-corner fill mask — DONE
+- The rounding is only in the FBX meshes (no code radius). Measured: every **convex** outer corner
+  (both orthogonal neighbours empty) has radius **0.080** at the authored 0.85 cell, identical on
+  1x1/2x2/L4/T4; straight edges sit on the cell boundary. Concave joins are filleted outward (into
+  the empty cell), so a cell-bounded mask never crosses them.
+- FBX meshes are **not readable** in builds (`isReadable=False`) — never derive the mask from the
+  mesh at runtime.
+- `ShapeSandFill` builds a per-texel `_texelMask` with those arcs (`CORNER_RADIUS_CELLS = 0.080/0.85`);
+  a texel is kept only if it is wholly inside.
+- Verified against the real mesh triangles (1x1/2x2/L4/T4 prefabs): old square mask overflowed
+  28/28/35/42 texels, new mask **0**, and 0 texels drawn past the silhouette at 1/25/100 %; the new
+  mask equals the set of texels fully inside the silhouette (no over-cut). Before/after corner
+  renders from the game-camera angle: the yellow wedge at 25/100 % and the sliver at 1 % are gone.
+
+### 2D edge shading (depth feel) — DONE
+- Soft XY shading: centre = shape colour, very slightly darker toward the walls. Not an outline.
+- Distance map: 8SSEDT (two-pass vector propagation) on `_texelMask` — real silhouette, rounded
+  corners and L/T/U outlines; internal cell joins are not edges. Built once per `configure`
+  (0–2 ms), stored as a darken-independent `_edgeFalloff`; `_edgeShade = 1 - edgeDarken * falloff`.
+- `shade = 1 - EDGE_DARKEN * (1 - smoothstep((d - WALL_INSET_CELLS) / FALLOFF_CELLS))`
+- **Final values:** `EDGE_DARKEN = 0.10`, `WALL_INSET_CELLS = 0.110 / 0.85`, `FALLOFF_CELLS = 0.45`.
+  (EDGE_DARKEN is now the GameplayTunables knob below; code default 0.10, asset currently 0.258.)
+- Wall inset measured from the meshes: outer edge ±0.425, inner opening ±0.315 → **0.110** on 1x1,
+  2x2, L4, T4 and U5 (also at the concave joins). The sand under the walls is never visible, so the
+  falloff starts at the inner wall line.
+- Colour order: shade is multiplied **after** the gain × grain clamp. Before the clamp, `RIM_GAIN`
+  pushes bright channels (yellow R) past 255 and the gradient would be clipped away.
+- **Shading tests passed:** distance map = brute-force Euclidean (max error 0); centre 0.989–0.994
+  (2x2 middle 1.000); wall line 0.90 easing 0.905 → 0.935 → 0.964 → 0.989; all four rounded
+  corners ease the same; L/T internal joins 0.989–0.994 (no false arm/centre darkening); real
+  L4 25 %, T4 50 %, U5 75 %, Plus5 100 %, Z4 100 % (temporarily yellow): coverage 100 %, Z unchanged,
+  edge/centre ≈ 0.906 on every colour including yellow; game-camera renders read as depth, no border.
+
+### `sandFillEdgeDarken` in GameplayTunables — DONE
+- `GameplayTunables.sandFillEdgeDarken` (header "Shape Sand Fill", default
+  `DEFAULT_SAND_FILL_EDGE_DARKEN = 0.10`, Range 0–0.3). `WALL_INSET_CELLS` / `FALLOFF_CELLS` stay
+  constants in `ShapeSandFill`.
+- Plumbing: `Container._tuning` → `Shape.setSandFillSource(unlit, colour, tuning)` (optional param)
+  → `ShapeSandFill.setTuning`. `Update` re-reads the value and, on change, rebuilds only
+  `_edgeShade` from `_edgeFalloff` and redraws once — live in Play.
+- **Current asset value: `_sandFillEdgeDarken: 0.258`** — set by the user in the Inspector at the end
+  of the session and saved in `Data/Tuning/GameplayTunables.asset` (line 29). This is what the Level
+  uses now. The code default (`DEFAULT_SAND_FILL_EDGE_DARKEN`) is still 0.10, and all shading tests
+  above ran at 0.10. 0.258 has not been re-measured or checked for "reads as outline" — look at it
+  on device.
+- Verified: at 0.10 `_edgeShade` is bit-identical to the old constant formula on all 5 shapes; set
+  to 0.25 in Play → min shade 0.750 and L4 edge/centre 0.754 on the next frame; back to 0.10 →
+  identical again. (Changed through the field by reflection, not the Inspector slider itself.)
+
+### Files touched on 2026-09-17 (all uncommitted)
+- 45° extraction: `SandCylinderSandGrid.cs`, `SandCylinderTunables.cs`,
+  `SandExtractionController.cs`, `Level.prefab`.
+- Sand fill: `ShapeSandFill.cs`; tunable plumbing: `GameplayTunables.cs`, `Container.cs` (1 line),
+  `Shape.cs` (optional parameter + `setTuning` call); `GameplayTunables.asset` (`_sandFillEdgeDarken:
+  0.258`, by the user in the Inspector).
+- Docs: this file; `Docs/handoff_shape_system.md` §0.12 got a "superseded in part" note.
+- Also modified in the working tree, not by the sand-fill work: `Data/Levels/SandSort_FillTest_5Shapes_Level.asset`
+  — most likely the 5-shape level (T4, L4, U5, Plus5, Z4) used in today's Play tests. Check what changed before
+  committing. `0_Temp_Level_List.asset` and `MechanicUnlocks.asset` were already modified at the start of the day.
+
+---
+
+## Previous resume list — open work as of 2026-09-16 (kept for reference; merged above)
 
 Nothing from 2026-09-16 is committed; all changes below are in the working tree on purpose.
 

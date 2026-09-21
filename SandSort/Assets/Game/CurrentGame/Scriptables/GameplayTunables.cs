@@ -31,6 +31,9 @@ public class GameplayTunables : ScriptableObject {
     public const float DEFAULT_COMPLETE_SCALE_OUT_DURATION = 0.18f;
     public const float DEFAULT_COMPLETE_EFFECT_SCALE = 0.3f;
     public const float DEFAULT_SHAPE_COMPLETE_PARTICLE_WAIT_MULTIPLIER = 1.15f;
+    public const float DEFAULT_SAND_FILL_EDGE_DARKEN = 0.10f;
+    public const float DEFAULT_SAND_FILL_COLOR_NOISE_AMOUNT = 0.20f;
+    public const float DEFAULT_SAND_FILL_DEPTH_AMOUNT = 0.14f;
     [Header("Drag")]
     [Tooltip("How hard the shape is pulled toward the pointer, per second. The visual catches up exponentially, so this is really a time constant: 1/sharpness is roughly the lag (30 => ~33 ms). Higher feels locked to the finger, lower feels heavy and smooths out a shaky pointer.")]
     [Range(5f, 60f)]
@@ -95,4 +98,18 @@ public class GameplayTunables : ScriptableObject {
     public float completeScaleOutDuration => _completeScaleOutDuration;
     public GameObject completeEffectPrefab => _completeEffectPrefab;
     public float completeEffectScale => _completeEffectScale;
+
+    [Header("Shape Sand Fill")]
+    [Tooltip("How much the sand inside a shape darkens toward the shape's walls: 0.10 = the sand at the visible wall line is 10% darker than at the centre, easing back to the full shape colour over about half a cell. 0 = flat colour. Keep it small — larger values start to read as an outline. Read live by ShapeSandFill, so changes show during Play.")]
+    [Range(0f, 0.3f)]
+    [SerializeField] float _sandFillEdgeDarken = DEFAULT_SAND_FILL_EDGE_DARKEN;
+    public float sandFillEdgeDarken => _sandFillEdgeDarken;
+    [Tooltip("Per-pixel brightness jitter on the sand inside a shape, as a peak-to-peak fraction: 0.20 = each pixel is randomly up to 10% brighter or darker than its neighbour, which breaks up the flat, cloth-like sheen and gives the fill a sandy surface. 0 = perfectly flat colour. This is FIXED grain — it never changes as the shape fills, and it is what makes the surface read as sand rather than as paint. The MOVEMENT while sand arrives is Sand Fill Depth Amount's job, not this one. Independent of Sand Fill Edge Darken; all three are applied together. Read live by ShapeSandFill, so changes show during Play.")]
+    [Range(0f, 0.5f)]
+    [SerializeField] float _sandFillColorNoiseAmount = DEFAULT_SAND_FILL_COLOR_NOISE_AMOUNT;
+    public float sandFillColorNoiseAmount => _sandFillColorNoiseAmount;
+    [Tooltip("How strongly the sand inside a shape shows LOCAL DEPTH — soft patches roughly half a cell across that each sit at one of 6 depth levels and walk 1->2->...->6 and back to 1 as the shape fills, every patch on its own phase, so the surface reads as sand piling up and re-settling in places rather than as one sticker sliding forward. 0.14 = the deepest patch is 14% darker than the shallowest. 0 = off. Driven ONLY by the fill level, so it is frozen whenever the fill is and the same fill always draws the same picture. The shape's average colour is held constant whatever this is set to (ShapeSandFill re-centres the field every redraw), so raising it adds contrast, never overall darkness. Read live by ShapeSandFill, so changes show during Play.")]
+    [Range(0f, 0.4f)]
+    [SerializeField] float _sandFillDepthAmount = DEFAULT_SAND_FILL_DEPTH_AMOUNT;
+    public float sandFillDepthAmount => _sandFillDepthAmount;
 }

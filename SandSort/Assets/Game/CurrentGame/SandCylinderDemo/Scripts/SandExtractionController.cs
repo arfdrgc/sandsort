@@ -283,7 +283,7 @@ public class SandExtractionController : MonoBehaviour {
             (int xStart, int xEnd, float xMinWorld, float xMaxWorld) = BlockColumnRangeForCube(cubeWorldX);
             (int yStart, int yEnd) = VerticalRowRange(cube.transform.position.y);
 
-            if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, cube.ColorIndex)) continue;
+            if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, cube.ColorIndex, tunables.extractionDiagonalSpread)) continue;
 
             ProcessExtraction(i, cube, xStart, xEnd, yStart, yEnd);
 
@@ -540,7 +540,7 @@ public class SandExtractionController : MonoBehaviour {
         var (xStart, xEnd, _, _) = BlockColumnRangeForCube(pointWorld.x);
         (int yStart, int yEnd) = VerticalRowRange(pointWorld.y);
 
-        if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, colorIndex)) return 0;
+        if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, colorIndex, tunables.extractionDiagonalSpread)) return 0;
 
         return ExtractForCollector(colorIndex, remainingCapacity, grainTarget,
             xStart, xEnd, yStart, yEnd, ref extractionAccumulator, ref grainSpawnAccumulator);
@@ -571,7 +571,9 @@ public class SandExtractionController : MonoBehaviour {
         int removed = 0;
         if (budget > 0) {
             removedCellsBuffer.Clear();
-            removed = grid.ExtractColor(xStart, xEnd, yStart, yEnd, colorIndex, budget, removedCellsBuffer);
+            // extractionDiagonalSpread only widens WHICH cells are reachable (see
+            // SandCylinderSandGrid.DiagonalColumnFloor); budget and caps are unchanged.
+            removed = grid.ExtractColor(xStart, xEnd, yStart, yEnd, colorIndex, budget, removedCellsBuffer, tunables.extractionDiagonalSpread);
             extractionAccumulator -= budget;
         }
 

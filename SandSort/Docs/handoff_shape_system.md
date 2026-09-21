@@ -288,6 +288,15 @@ numbering has shifted up by one). **`SandLevelSO.cs` only**; no other code or as
 
 ### 0.12 Shape sand fill, cavity floor, fill badge & sand-pour particles — done, verified
 
+> **Superseded in part on 2026-09-17 (publisher feedback) — see `TODO.md` → "Session — 2026-09-17".**
+> The fill picture is no longer a radial heap from the centroid: it is a uniform layer whose progress
+> is shown only by the existing Z travel (`-0.08` → `-0.44`), with a rounded-corner mask (convex
+> radius 0.080/0.85) and soft XY edge shading (`sandFillEdgeDarken` in GameplayTunables — code
+> default 0.10, tested at 0.10; the asset is set to 0.258 by the user,
+> `WALL_INSET_CELLS` 0.110/0.85, `FALLOFF_CELLS` 0.45). The pile/centroid description below is kept
+> as history; the centroid now only positions `PourTarget` for the particles. Cavity floor, badge
+> and particle notes are unchanged.
+
 Everything in this section is **settled and must not be re-litigated next session**: start from this
 state and change it only when there is a new reason to.
 
