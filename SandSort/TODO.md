@@ -3,7 +3,337 @@
 Rolling status file. Read this first when resuming work; it records where things
 actually stand, not what was planned. Design specs live in `Docs/`.
 
-**Last updated:** 2026-09-17 (end of day)
+**Last updated:** 2026-09-22 (Sand Level Designer session note; extraction-driven 3D cube grains)
+
+---
+
+## Sand Level Designer — session note 2026-09-22 — in code, uncommitted
+
+**Where it is:** `Scripts/LevelDesigner/SandLevelDesigner.cs` on the `---SandLevelDesigner` object in
+GameScene, plus `Scripts/Editor/SandLevelDesignerEditor.cs`. Play-mode tool (Editor / dev build):
+Play from BaseScene, **F2** toggles. Gameplay code touched: `Level` only (`containerMaterialOf` public;
+`sandPaletteColors`, `hasContainerColor`, `containerColorOf`, `sandPalette` read-only accessors).
+
+- **Phase 1 — scene editing: done, verified.** Working copy of the level's `ContainerData` list drawn
+  as Shape-prefab previews (gameplay Containers hidden meanwhile). **1** create `_shapePool[0]` at the
+  hovered cell · drag = move, grid-snapped · **R** rotate 0→90→180→270 · **Q** next pool shape
+  (position / rotation / colour kept) · **Delete** remove.
+  **Placement is unrestricted while editing (2026-09-22, unverified in Play):** create / drag / R / Q
+  always apply even when the result is off-board or overlaps another piece — such a piece is only
+  tinted red and blocks Save until fixed (the old refuse / revert / snap-back gates are gone; Board's
+  gameplay rules untouched). The anchor cell for **1** still has to be on the Board.
+  Keys act on the hovered piece, else the selected one. Shape Pool = the 13 canonical prefabs listed on
+  the component (no pool asset). Verified by reflection-driven Play; real mouse drag hand-checked by
+  the designer.
+- **Phase 2 — colour + Save/Load: done, verified.** **C / Shift+C** next / previous colour;
+  **S** save; **L** reload (discard). Save is Editor-only: `Undo` + `SerializedObject` write of
+  `SandLevelSO._containers` (position, shape, rotation, color, cells), `SetDirty`, `SaveAssetIfDirty`.
+  **Refused, nothing written**, if any piece is off-board / overlapping or has a colour with no
+  ColorSO. The running Level is not rebuilt — reopen the level. Legacy shape-less entries are skipped
+  at load (and so dropped by Save; no level has any). Round-trip verified: Save → YAML on disk →
+  `LevelGenerator.loadLevel` spawns the designed pieces at the designed cells.
+- **Sand Texture Colour Debugger: done.** The designer analyses `_sandTexture` (empty = the loaded
+  level's own PNG) the way the loader does — opaque pixels vs `SandPaletteSO` author colours, slot →
+  `Level.sandPaletteColors` → ColorSO — with a per-channel `_colorTolerance` (default 8; inexact
+  matches flagged `approx`, the loader itself is exact). Verified on Toucan7 (7 colours, counts equal
+  to an independent PNG decode), a texture override and a tolerance probe.
+- **Debugger lives in the SandLevelDesigner Inspector** (no Game-view panel): analysed texture,
+  summary (Texture / Matched / Missing / Placed Colors), one row per colour with swatch, pingable
+  ColorSO (or red MISSING), placed count, pixel count, plus help boxes (missing ColorSO, approx,
+  unmatched, placed-but-not-in-texture). Before Play it previews the assigned texture against the
+  Level PREFAB; while designing it shows live data. Draws without errors; layout not yet eyeballed.
+- **Current colour filtering:** C / Shift+C and 1 can only assign colours that are in the analysed
+  texture AND have a ColorSO on the Level prefab (palette order). With no readable texture it falls
+  back to palette ∩ ColorSO, loudly. 1 uses `_defaultColor` if allowed, else the first allowed colour.
+- **`SandSort_Toucan7_9x10_Level.asset`** currently holds a hand-test save: 1 piece (GREEN T4 at
+  (1,3), Deg270) instead of the original 7 — `git checkout` it before committing if unintended.
+- **Nothing committed** (working tree only).
+- **Next:** manually verify the Inspector layout (select `---SandLevelDesigner`, edit mode and
+  during F2), then create a simple test level using every valid sand-texture colour once.
+
+## Extraction-driven falling grains (3D cubes) — 2026-09-22 — in code, uncommitted
+
+Status: **in code, compiles clean, verified by reflection-driven Play runs from BaseScene (Level 1:
+red 2x2, yellow T4). NOT hand-played, NOT profiled on device, NOT committed.** Extraction logic, sand
+physics, capacity and the fill visual's own look are unchanged.
+
+**What replaced what.** Before, two unrelated effects ran: (A) a fixed-rate stream (160 grains/s per
+column, regardless of `removed`) aimed at one point, `PourTarget`; (B) `ShapeFillParticles`, a burst
+fired by fill-level steps along the Shape's whole top edge. Both are gone for Shapes. Now one effect,
+driven by the extraction itself:
+- `ExtractionGrid.Update` passes `grainTarget = null` to `ExtractAtPoint` (the controller skips its old
+  stream when the target is null; the demo conveyor still uses it unchanged), then
+  `ExtractionGrid.spawnGrains` reads `SandExtractionController.LastRemovedCells` (the cells that call
+  actually removed) and spawns grains from them, spread evenly across the list.
+- **Density** (measured on a 2x2 at ~55 fps: 1–30 cells per call, ~35/frame at full flow, ~18 through
+  the middle, 1–8 tail): `CELLS_PER_GRAIN = 4` with the remainder carried per column,
+  `MAX_GRAINS_PER_CALL = 8` (only bites on frame hitches; the excess is dropped). T4 peak ≈ 200 live grains
+  (pool is 256 per colour).
+- **Motion** (`SandExtractionParticleEffect.SpawnFallingGrain`): starts on the removed cell's exact screen
+  pixel, keeps its X, falls from rest under `particleGravity`, dies at `ShapeSandFill.grainLanding` (top
+  of the opening in that column, then 10–60 % of that column's depth — never through an L foot / T arm).
+  World space. **Follow-before-rim:** while above the Shape's rim a grain moves with the Shape one-for-one
+  (existing `followedTargetBySeed` machinery + `releaseLocalYBySeed`); the first frame at/below the rim
+  it is released and continues in world space. Measured during a fast `dragTo` sweep (≤ 0.31 world/frame):
+  following grains drift ≤ 0.003/frame relative to the Shape (96 % inside its span), 0.003 max jump on
+  the release frame.
+- **Spawn height fix:** the grain is drawn `FollowPourForwardOffset` (0.56) toward the camera; moving
+  along world Z alone put it 43.7 px (~8 sand cells) ABOVE its cell, because the game camera is
+  orthographic and pitched 20°. `OnScreenOver` slides it along the view direction instead: first-frame
+  offset 0.00 px (direct emit), median 0.9 px in a real flow.
+- **Look:** Shape grains have their OWN per-colour systems (`SandCubeGrains_ColorN`, built lazily) so the
+  conveyor's billboard systems (`SandGrains_ColorN`) are untouched. Mesh render mode, runtime 24-vertex
+  cube, runtime copy of the level's URP Unlit material with a 3-texel shade strip (face pairs at
+  100/80/61 % of the band colour) — no new shader. Random start `rotation3D`, random
+  `angularVelocity3D` 180–540 °/s. Size `particleSize × 1.25` (`CubeGrainSizeScale`; ≈ 6.5 px on a phone;
+  1.0 read too faint). Shrinks to 0 over the last 20 % of life so landing does not pop. Colour = the
+  band's palette colour (not the fill's dark→light ramp).
+- **Render order:** the cube material is on the Transparent queue (3000). At queue 2000 the held Shape's
+  `SelectedShapeDepth/Body` + Outline passes (Moow_Renderer, AfterRenderingOpaques, ZTest Always)
+  painted over every grain inside its outline during a drag. Conveyor material stays at 2000.
+
+**Files:** `ExtractionGrid.cs`, `SandExtractionController.cs` (read-only accessors `LastRemovedCells`,
+`CellToWorld`, `ParticleEffect` + null-target skip), `SandExtractionParticleEffect.cs`,
+`ShapeSandFill.cs` (burst removed; `grainLanding`, `grainIntake` added), `Shape.cs` (one `configure`
+call). `ShapeFillParticles.cs` deleted (was never committed).
+
+**Open:**
+- Hand-play at speed: density (`CELLS_PER_GRAIN`), cube size, tumble speed, landing feel.
+- Device profile: up to ~200 live 24-vertex cubes per colour, Unlit likely not GPU-instanced.
+- Same-colour grains over same-colour sand rely on the darker cube faces to stay visible.
+- `PourTarget` (`ShapeSandFill` / `Shape.sandPourTarget` / `Container.sandPourTarget`) is still built
+  but nothing reads it — remove when convenient.
+- Landing clearance in `grainLanding` still uses the unscaled `particleSize` (deliberate for now).
+- Demo conveyor: code path unchanged, but the demo scene itself was not opened to look.
+
+---
+
+## Contact-limited extraction mouth — 2026-09-21 — in code, uncommitted
+
+Status: **in code, compiles clean (0 errors / 0 warnings), verified by an instrumented real-drag run in
+Play from BaseScene (Level 1). NOT hand-played, NOT profiled on device. No commit.**
+
+**Problem (measured):** `ExtractionGrid` made a board column a candidate at any overlap > 0.0001 cells,
+then called `ExtractAtPoint` with that column's CENTRE, which `BlockColumnRangeForCube` widened to the
+whole 34-column block. A container that barely touched a new block drained all of it: in a slow real
+drag, sand was taken up to **0.847 world (one full block)** outside the container's drawn edge, at every
+block crossing (interior blocks as well as the outer edge blocks), never while flush against a wall.
+
+**Rule now (a cell (x, y) is extractable in a block call only if all hold):**
+1. `x` is in the block AND in `[xa, xb)` = the grid columns whose centres lie inside the container's
+   drawn footprint (the unbroken run of active top-profile cells the candidate's owner cell belongs to).
+2. `y <= 7 + min(edgeDistance, 7)`, `edgeDistance = min(x - xa, xb - 1 - x)`; both 7s are
+   `extractionMouthRows / 2`. Edge column rows 0–7, +1 column in 0–8, …, 7+ columns in 0–14 (full 15-row
+   mouth). An edge lying on the sand's outer wall is not an open edge and trims nothing.
+3. Support check, colour match, one grain per column per call, random start column — unchanged.
+
+Block candidates are NOT widened (a block with no physical overlap is never extracted from; a contact
+that covers no column centre gives an empty window, `HasColorAtMouth` is false and the slot passes on).
+Rate, budget, accumulators, block processing, candidate order and sand physics are unchanged.
+
+**Code path:** `ExtractionGrid` (`_contactLow/_contactHigh` per shape cell, filled in
+`gatherOverlappingColumns`) → `SandExtractionController.ExtractAtPoint(point, contactMinWorldX,
+contactMaxWorldX, …)` (world span → covered columns) → `SandCylinderSandGrid.ExtractAtMouth /
+HasColorAtMouth(…, contactStart, contactEnd)` + `MouthRowLimit`. The old signatures are wrappers passing
+`(0, width)` = the old whole-block behaviour, so the demo conveyor is unchanged.
+
+**Verified:** `MouthRowLimit` table matches the rule exactly (aligned 2x2, 1 / 4 columns into a new
+block, fully inside it, flush at either wall, whole-width wrapper = 0–14 everywhere). Real-drag sweep,
+3 trials (orange right/left, yellow right; drag via the container's own beginDrag/dragTo/endDrag, real
+ExtractionGrid → ExtractAtPoint → ExtractAtMouth, every removed cell checked per frame): **0 cells
+outside the footprint** (before: up to 0.845–0.847 world), 0 column / 0 row-limit violations, max row 14;
+totals ≈ unchanged (2257→2239, 2264→2260, 5643→5796). A newly entered block now opens gradually
+(first contact: 1 covered column, 1 cell) instead of ~27 cells across the whole block.
+
+**Open:** hand-play feel (a new block is now drained gradually, spread over more frames); re-check the
+colour-match stall numbers of the Step 8 level validation, which were measured with the whole-block mouth.
+
+---
+
+## Sand-resolution reset — 2026-09-21 — CURRENT BASELINE (Steps 1–9 done, uncommitted)
+
+Status: **in code, compiles clean, verified by instrumented runs (edit-mode harness + Play from
+BaseScene). NOT hand-played with real drags, NOT profiled on device. No commit.**
+
+**User decision:** the old extraction + sand-resolution physics were *reset*, not fixed. Everything
+the older sections of this file say about `ExtractColor`, the extraction band / `extractionRangeY`,
+the 45° wings, same-colour refill, `StepCell`, priming and active-region sub-steps describes code
+that **no longer exists**. Those sections are marked RETIRED / SUPERSEDED below and kept only as
+history. **The architecture described here is the accepted baseline.**
+
+### What the sand is now (`SandCylinderDemo/Scripts/SandCylinderSandGrid.cs`, in place — no new class/scene)
+
+- **Storage:** `cells` (colour; the only array physics reads), `tint` (per-grain visual identity),
+  `rowCount`. **Three write primitives — `Place` / `Move` / `Remove` — are the only writers**; each
+  keeps cells, tint, counts, `CellsVersion` and the wake region in step.
+- **Simulation:** `SimulatePass()` is hole-centric and colour-blind: it visits EMPTY cells bottom-up
+  (so a void opened at the mouth reaches the surface within one pass), alternating scan direction per
+  row and per pass. **`ChooseSource(x, y)` is the only place a movement rule lives.** Policy v0: the
+  grain directly above drops in; with chance `flowSpread` a *supported* diagonal grain takes its place;
+  with nothing above, a supported diagonal grain slides in with chance `slideChance`, otherwise the
+  hole is asked again next pass. Every move goes one row down.
+- **L3 rest friction (accepted, `restFriction` 0.5):** a *marginal* slide (hole already rests on
+  sand/floor AND the grain is the top of its column — a step exactly two cells high) is refused with
+  that chance per pass, and a refused marginal slide does not keep the sand awake. At 0 the policy is
+  exactly v0 (regression reference: 357 passes / 499 291 moves on the carve test).
+- **Scheduler:** all passes run in the grid's `LateUpdate` (after extraction in `Update`, before the
+  renderer at order 100): `sandSimulationSpeed` passes/s, ≥1 pass per frame while awake, ≤16, and
+  ≤ `maxCellsPerFrame` cell visits. **Sleep/wake:** the primitives wake exactly the neighbourhood
+  their change can set in motion; a pass that moves nothing puts the grid to sleep — zero cost at rest.
+- **Randomness:** two independent xorshift streams. `physicsRng` drives every movement/extraction
+  choice (nothing uses `UnityEngine.Random`); `visualRng` only assigns a new grain's tint. Tint is
+  never read by physics — verified: byte-identical results with all tints zeroed and with every grain
+  recoloured.
+- **Extraction is mouth-only:** `ExtractAtMouth` / `HasColorAtMouth`. The mouth is the collector's
+  block columns × the bottom `extractionMouthRows` rows (**since limited to the physically covered
+  columns with a 45° edge trim — see "Contact-limited extraction mouth" above**). No reach above it, no wings, no climbing past
+  other colours, no refill rule. Colour matching exists only here. `SandExtractionController` calls it
+  directly; `ExtractAtPoint` kept its signature but only `pointWorld.x` matters now (so
+  `ExtractionGrid.cs` is untouched and still passes the sand-bottom Y, which is ignored).
+- **Renderer:** shades each grain by `grid.GetTint(x, y)`; the world-locked `Hash01(x, y)` is gone, so
+  the grain pattern travels with the sand. Change gate and execution order unchanged.
+
+### Tunables now (`SandCylinderTunables`, 27 fields; 18 dead ones deleted in Step 7)
+
+Sand Simulation: `sandSimulationSpeed` (passes/s, range 1–240, **code default 120**), `flowSpread`
+0.5, `slideChance` 0.6, `restFriction` **0.5** (labelled EXPERIMENTAL, accepted), `maxCellsPerFrame`
+400000. Extraction: `sandExtractionRate`, `maximumSandFlowRate`, `extractionMouthRows` 2 (`Level.prefab` now serializes 15). Sand Look:
+`colorNoiseAmount` (amplitude of the per-grain tint).
+
+- **`Level.prefab` still serializes `sandSimulationSpeed: 45`** (prefab edits were out of scope), so
+  the game runs at ~1 pass/frame, not the evaluated 120. Set it in the Inspector when decided.
+  `restFriction` has no serialized entry yet, so the prefab and both demo scenes pick up 0.5 from the
+  code default. Stale keys of the deleted fields sit in `Level.prefab` and the two demo scenes until
+  each is next saved (harmless).
+
+### Step log
+
+1. Provisional tunables. 2. `tint` / `rowCount` / primitives / two RNGs. 3. `SimulatePass`,
+`ChooseSource` v0, scheduler, sleep/wake, mouth extraction; old physics + extraction deleted.
+4. Controller on the new API (`VerticalRowRange`, `WorldYToGridRow`, shims removed; gizmo/log draw
+the mouth). 5. Renderer reads per-grain tint. 6. Evaluation (below). 7. Dead tunables removed,
+ranges/tooltips final. 8. Level + demo-scene validation (below). 9. This documentation.
+
+### Step 6 evaluation — measured (SandBuckets2, 60 fps, large drain ≈16.5k grains through two blocks)
+
+| Config | Drain | Settle | Rest surface (adjacent column diffs 0/1/2) | Wall shape in the drain |
+|---|---|---|---|---|
+| speed 45, v0 | 920 f / 15.7 s | 2300 f / 38.7 s | 2 / 167 / 0 (ruler-straight V) | ~75° chimney |
+| speed 120, v0 | 513 f / 9.5 s | 1162 f / 20.3 s | 2 / 167 / 0 | same |
+| speed 120 + **L3 0.5** | 517 f / 9.2 s | 582 f / 10.3 s | **31 / 74 / 64** (irregular) | same |
+| + slideChance 1.0 (L2 upper bound) | 459 f | 398 f | 32 / 79 / 58 | same, + lockstep whiskers |
+| + lateral reach 2 (L1) | 309 f | 692 f | 72 / 87 / 10 (L3 mostly erased) | same at equal volume, 3× airborne grains, whiskers |
+
+Passing in every config: inward collapse from both sides, no rigid plug, comes to rest and stays
+static (0 moves / 180 frames), sleeps, conservation exact, tint travels with the grains (0 mismatches
+over 812k drawn-cell checks).
+
+### Decisions (don't re-litigate)
+
+- **L3 `restFriction` = 0.5 is accepted.** It is the only accepted change on top of v0.
+- **L1 (lateral reach) is rejected** — no clear wall-shape gain, obvious whisker artefacts, undoes L3.
+- **L2 (drop-sensitive slide chance) is rejected** — its theoretical maximum (slideChance 1.0) does
+  not change the wall shape and makes shedding synchronous. L4 / L5 were never needed or built.
+- **The v0 movement rule stays unchanged. No further wall-collapse redesign now.** The steep chimney
+  during a fast drain is structural (any supported grain in a wall face can leave sideways from every
+  exposed row, so faces translate instead of slumping from the top) and is invariant to pass rate,
+  slide chance and reach. Known and accepted for now.
+- Extraction never reaches outside the container's physically covered columns and never uses a block
+  the container does not cover (contact-limited mouth, 2026-09-21); the 45° trim only shortens the
+  covered columns near the footprint edges.
+- Never reintroduce reach / wings / colour-aware refill, position-based visual noise, or tint in
+  physics. New movement rules go inside `ChooseSource` only.
+
+### Step 8 validation — levels (idealised player, real `Level` prefab build, prefab values)
+
+Method: each level built through `Level.initialize` in Play; containers parked under the blocks
+holding most of their colour in the mouth, re-arranged after a 1 s stall, 1.5 s charged per
+re-arrangement. **Ignores board movement and shapes blocking each other — a best case.**
+
+| Level | Re-arrangements | Est. time | Timer | Verdict |
+|---|---|---|---|---|
+| SandBuckets2 5×4 | 29 | ~152 s | 240 s | physically playable |
+| Demo 1 YellowDuck | 15 | ~118 s | 240 s | physically playable |
+| Demo 2 Watermelon | 26 | ~218 s | 240 s | physically playable (marginal) |
+| Demo 3 Ladybug | 24 | ~143 s | 240 s | physically playable |
+| Demo 4 Clownfish | 21 | ~177 s | 240 s | physically playable |
+| Canyon9Colors 9×10 (`SandSort_FaultScarp9_9x10.png`) | 420 | ~1208 s | 300 s | **FAILS** |
+
+**5 of 6 validated levels are physically playable.** On all six: `validateLevel` passes, no
+uncollectable colour, every colour reaches a mouth through collapse (latest: re-arrangement 4), full
+drain, extraction stayed inside the mouth rows, sand ends asleep with nothing floating, no
+exceptions. Demo scenes: SandMixDemo pours / piles / rests and its cubes collect (conserved);
+SandCylinderDemo cubes collect (conserved).
+
+**KNOWN LEVEL-DESIGN ISSUE — FaultScarp9 / Canyon9Colors. Do NOT fix now (user decision).** The
+pattern was authored for the old extraction band, which climbed past other colours; under mouth-only
+colour extraction almost every block's mouth holds several colours at once (one block starts with 8),
+so a parked container stalls after a few grains: 198 of 420 re-arrangements yielded < 200 grains and
+even the idealised player needs ~4× the timer. It is physically drainable — the failure is
+playability, and it is a pattern/level-design incompatibility, not a simulation bug.
+
+### Open (none of it started)
+
+- **Colour-match stall (design decision, the user's):** with mixed colours in a 2-row mouth a parked
+  container stalls after a few hundred grains; even the 5 playable levels need 15–29 idealised
+  re-arrangements. Levels/patterns authored from now on should keep mouths colour-coherent.
+- `Level.prefab` speed 45 vs the evaluated 120; at 1 pass/frame a 2-row mouth draws a one-cell hanging
+  row at the floor during extraction (mostly gone at 2+ passes/frame).
+- Hand-play with real drags; by-eye judgement of the grain look in motion; **device profile of the new
+  system** (all device numbers further down belong to the deleted sub-step system).
+- Comment-only leftovers naming `ExtractColor` / `VerticalRowRange` / `extractionRangeY` /
+  `maxCellsPerColumnPerTick` in `ExtractionGrid.cs`, `Level.cs`, `SandExtractionController.cs` (1 line)
+  and `SandExtractionCube.cs` (1 line) — those files were out of scope.
+
+### Files touched by the reset (all uncommitted)
+
+`SandCylinderDemo/Scripts/SandCylinderSandGrid.cs`, `SandCylinderTunables.cs`,
+`SandCylinderRenderer.cs`, `SandExtractionController.cs`. No prefab, scene, pattern, `ExtractionGrid`,
+fill, particle or container change.
+
+---
+
+## Session — 2026-09-21 (publisher feedback: same-colour-first extraction flow) — RETIRED
+
+> **RETIRED 2026-09-21 by the sand-resolution reset above.** `extractionSameColorBlocksSkip`,
+> `extractionSameColorRefillFirst`, `FollowSameColorRefill`, `ResolveCaveInBias`, the wings and
+> `extractionRangeY` were all deleted the same day. Kept as history only: the publisher's ask
+> (bottom-up, gradual settling, no rigid plug) and the measured cause below are what motivated the reset.
+
+Status at the time: **done in the Editor, Play-tested from BaseScene (watermelon level). No commit.**
+
+Publisher: range may stay high, but sand must go bottom-up, upper layers must settle gradually
+instead of dropping straight down, and sand may only be skipped when it is a DIFFERENT colour.
+
+- **Cause found (measured):** a one-cell extraction hole always climbs straight up its own column
+  (`StepCell` tests "fall" before "slide"; priming + 24 sub-steps close it the same frame), so
+  everything above the drained block sinks as a rigid plug. Draining a colour that lies UNDER another
+  (green rind under red) punched the red through to the floor in H and left the rind as two short
+  stubs with vertical faces; the 45° wings then shaved those to the diagonal. Extraction stalled at
+  581 / 2454.
+- **Two flags in `SandCylinderTunables`, both default false (demo scenes unchanged), both ON in
+  `Level.prefab`.** `StepCell`, `Step`, sub-steps, particles, materials, `ExtractionGrid.cs`,
+  `SandExtractionController.cs` untouched.
+  - `extractionSameColorBlocksSkip` — a matching run that continues from BELOW a column's floor is
+    not extractable (only ever true in the wings; H's floor is row 0). Matching sand resting on a
+    different colour is still taken through it. Same rule mirrored in `HasReachableColor`.
+  - `extractionSameColorRefillFirst` — `SandCylinderSandGrid.FollowSameColorRefill`: the hole is
+    walked upward through sand of the extracted colour (straight-up cell first, else a settled
+    diagonal neighbour, `extractionCaveInLeftBias` on ties) before `ResolveCaveInBias`/gravity get it.
+    Only legal moves, only their order changes. Sideways travel per hole ≤ window height in rows
+    (15 at `extractionRangeY` 0.35 — same reach as the wings), so `extractionRangeY` is the dial.
+- **Result:** rind case — layer thins as a smooth 45° V, red settles into it gradually, no plug and
+  no vertical face at any point; stubs end in natural 45° slopes. Red-through-green case — wide
+  funnel instead of a narrow yellow chimney.
+- **Side effect to judge:** one parked shape now collects MORE (red 2x2: 4222 vs 2144 cells before
+  stalling). Levels tuned around colour residue (demo L2/L4) need a re-check.
+- **Still open:** at the outer edge of the refill reach a steep face can remain (non-target sand
+  still falls as a plug there — holes do not travel sideways through other colours; changing that
+  would be a physics change, not done). Sand resting above the band ceiling on non-target sand is
+  still unreachable (that is `extractionRangeY`, by design). Not tested on device.
+- `Level.prefab` currently has `extractionRangeY: 0.35` (the 2026-09-17 note below says 0.7).
+- Before/after grid dumps: `Captures/sandflow_old_0394.png` vs `sandflow_new_0203/0603.png`,
+  `sandflow_red_old_2144.png` vs `sandflow_red_new_4222.png` (folder is git-ignored).
 
 ---
 
@@ -22,7 +352,9 @@ Nothing from 2026-09-16 or 2026-09-17 is committed; all changes are in the worki
    solver approach used for L2/L4) and confirm it completes; watch the BLUE_LIGHT T4 parking.
 4. **Demo levels feel** — L1 (25 s) and L2 v2 / L4 v2 complete, but L2/L4 needed ~23–29 automated
    moves with parks because of colour residue. Hand-play the demo order 1→4 and judge the flow.
-   Re-check after the 45° extraction change (it makes shapes reach more sand).
+   **Re-check under mouth-only extraction** (2026-09-21 reset): all four are physically playable but
+   an idealised player needs 15–26 re-arrangements; Demo 2 is marginal on the timer — see the
+   validation table at the top.
 5. **Device checks** — selected-shape render order, a real touch drag (all tests so far used
    reflection-driven drags), and how readable the Z-only sand fill + edge shading are on a phone
    (the game camera is nearly front-on, so 25 % vs 100 % reads mostly through wall exposure).
@@ -43,8 +375,10 @@ Nothing from 2026-09-16 or 2026-09-17 is committed; all changes are in the worki
 9. **Save state** — not re-checked on 2026-09-17. Today's Play runs loaded a 17 × 1x1 level and later
    a 5-shape level (T4, L4, U5, Plus5, Z4), and one run reached level complete. Check `DataSO.level`
    before the next Play test.
-10. **Publisher feedback leftovers** — sand-pour particles still aim at the centroid `PourTarget`
-    (not at the fill surface); decide whether that needs a pass now that the fill has no pile.
+10. ~~**Publisher feedback leftovers** — sand-pour particles still aim at the centroid `PourTarget`
+    (not at the fill surface); decide whether that needs a pass now that the fill has no pile.~~
+    **Resolved 2026-09-22:** grains no longer aim at `PourTarget`; they fall straight down from the
+    removed cells (see the 2026-09-22 section at the top).
 
 ---
 
@@ -52,7 +386,9 @@ Nothing from 2026-09-16 or 2026-09-17 is committed; all changes are in the worki
 
 Status: **done in the Editor, Play-tested from BaseScene. No commit.**
 
-### 45° extraction coverage — DONE (earlier session the same day)
+### 45° extraction coverage — RETIRED (deleted by the 2026-09-21 sand-resolution reset)
+> The wings, `extractionDiagonalSpread`, `DiagonalColumnFloor`, `ExtractColor` and
+> `HasReachableColor` no longer exist; extraction is mouth-only. History only:
 - `SandCylinderTunables.extractionDiagonalSpread` (default false, so the demo scenes are unchanged),
   set to **on** in `Level.prefab`.
 - Coverage = the vertical window H = [xStart,xEnd)×[yStart,yEnd) plus 45° wings A: a column `d`
@@ -376,10 +712,18 @@ tuning change; the 9-colour level and its PNGs are untouched.
 
 ---
 
-## Sand flow speed + horizontal hanging rows — DONE, final state (2026-09-15)
+## Sand flow speed + horizontal hanging rows — SUPERSEDED (2026-09-15 work, deleted 2026-09-21)
 
-Status: **in code, verified in Play from BaseScene, accepted.** Only open item
-is device cost (see *Open* below). No commit.
+> **SUPERSEDED by the sand-resolution reset at the top of this file.** `StepCell`, `Step`,
+> `PrimeColumnFalling`, `RunActiveSubSteps` and every tunable listed under *Current sand tuning*
+> below (except `sandSimulationSpeed`, `colorNoiseAmount`, `blockCellSize`) were deleted. The
+> "straight 45° settled V is accepted" decision below is also superseded: the rest surface is now
+> irregular by `restFriction` 0.5. Still true and worth keeping from this section: the
+> `EditorApplication.update` rate pitfall, the `_testLevel` Editor-only note and the screenshot note
+> under *Notes for the next session*. Everything else is history.
+
+Status at the time: **in code, verified in Play from BaseScene, accepted.** Only open item
+was device cost (see *Open* below). No commit.
 
 ### Problems that were solved
 
@@ -488,14 +832,22 @@ StepCell peeling the surface, not frame order. Horizontal dangling is
   (restored and verified byte-identical after the device runs).
 - MCP `manage_camera` screenshots land in `Assets/Screenshots/` (creates
   `.meta`); move them out / delete after use.
-- `CLAUDE.md` *Current work status* still says the sand simulation "has not been
-  modified" — stale since this work (grid sub-steps + renderer execution order).
+- ~~`CLAUDE.md` *Current work status* still says the sand simulation "has not been
+  modified"~~ — fixed 2026-09-21: the paragraph now describes the sand-resolution reset.
 
 ---
 
-## Sand performance on device — Stage 1 + Stage 2, in code (2026-09-16)
+## Sand performance on device — Stage 1 + Stage 2 (2026-09-16) — PARTLY SUPERSEDED
 
-Status: **in code, measured on a Xiaomi Mi 9T (60 Hz, IL2CPP development
+> **2026-09-21:** the simulation these numbers measured was deleted by the sand-resolution reset.
+> What survives: **Stage 1, the renderer change gate** (unchanged, still in `SandCylinderRenderer`)
+> and the *idea* of Stage 2 — `maxCellsPerFrame` is now the work ceiling of the new `LateUpdate`
+> scheduler (passes × awake area). Obsolete: every sub-step figure, the calibration table as a guide
+> for the new system, and both Stage-3 candidates (the new grid goes to sleep the pass after the last
+> move and has no full-grid diff scan). **The new system has not been profiled on a device yet** —
+> only an Editor worst case of ~0.6 ms per full-width pass on 170×240. History below.
+
+Status at the time: **in code, measured on a Xiaomi Mi 9T (60 Hz, IL2CPP development
 build), accepted for the 30 FPS target. No commit.** Files touched:
 `SandCylinderSandGrid.cs`, `SandCylinderRenderer.cs`,
 `SandCylinderTunables.cs`. `Level.prefab` and every existing tuning value are
@@ -703,7 +1055,15 @@ surface notched, while blocks 0–3 and 8 stayed untouched.
 
 ---
 
-## 9-colour artwork — v2 delivered, quality work continues
+## 9-colour artwork — v2 delivered; **incompatible with mouth-only extraction (known, not fixed)**
+
+> **KNOWN ISSUE 2026-09-21 — do not fix now (user decision).** v2 (`FaultScarp9`) was authored and
+> verified against the OLD extraction band (16+ rows, climbing past other colours). Under the reset's
+> mouth-only colour extraction it is physically drainable but not playable: almost every block's
+> 2-row mouth holds several colours at once (one starts with 8), so a parked container stalls after a
+> few grains — an idealised player needs 420 re-arrangements / ~1208 s against a 300 s timer. The
+> "Verified in Play" figures below were measured with the old band and no longer describe the game.
+> Any v3 has to keep each block's mouth colour-coherent. Details: validation table at the top.
 
 Test level: `Data/Levels/SandSort_Canyon9Colors_9x10_Level.asset` (board 9×10,
 9 × `Shape_2x2` containers). Colours in use: WHITE, RED, BLUE, ORANGE, GREEN,
@@ -759,7 +1119,7 @@ Specific fixes against the v1 findings:
 Distribution: WHITE 15.1 %, RED 15.8 %, BLUE 15.2 %, BLUE_LIGHT 15.2 %,
 BROWN_DARK 13.0 %, ORANGE 10.7 %, YELLOW 7.4 %, GREEN_DARK 3.9 %, GREEN 3.8 %.
 
-### Verified in Play (BaseScene)
+### Verified in Play (BaseScene) — with the OLD extraction band, history only
 
 - **All 9 slots present in the bottom 16-row extraction band** — measured on the
   live grid: BROWN_DARK 2497, BLUE 961, BLUE_LIGHT 368, YELLOW 231,
@@ -785,7 +1145,10 @@ Sand simulation, extraction, capacity algorithm, container matching, renderer
 behaviour, `SandCylinderDemo/**`, `SandColorUtility`, `GameplayTunables`,
 `EditorColorPalette`, `pileStability` and every other tuning value — as of the
 artwork work. (Later, 2026-09-15: active-region sub-steps + frame order were
-added to the grid/renderer; see *Sand flow speed + horizontal hanging rows*.) No
+added to the grid/renderer; then on 2026-09-21 the sand simulation and the
+extraction were rebuilt from scratch — see *Sand-resolution reset* at the top.
+Capacity algorithm, container matching, `ExtractionGrid`, `SandColorUtility`,
+`GameplayTunables` and `EditorColorPalette` are still untouched.) No
 shape-freezing or shape-preserving system exists or should be added — post-
 extraction deformation is a core ASMR feature.
 
@@ -793,24 +1156,32 @@ extraction deformation is a core ASMR feature.
 
 ## Next up
 
+**0. Sand-resolution reset follow-ups (see the top section) — decisions first, no work started:**
+the colour-match stall under mouth-only extraction (how many re-arrangements a level may demand, and
+what that means for pattern authoring), which `sandSimulationSpeed` to save in `Level.prefab` (45 now,
+120 evaluated), a hand-played pass with real drags, and a device profile of the new system.
+FaultScarp9 / Canyon9Colors is knowingly left broken until those are settled.
+
 **Artwork quality, not pipeline.** The goal is a picture a level designer could
 plausibly hand-draw in Aseprite — v2 is a good skeleton but still recognisably
 machine-even in places. Concretely:
 
 1. Push v2 (or a v3) closer to hand-made: less uniform feature density, more
    deliberate focal points, fewer evenly-distributed accents.
-2. Spread the scarce colours better across board blocks in the extraction band
-   (some blocks still carry only 4 of 9).
+2. ~~Spread the scarce colours better across board blocks in the extraction band
+   (some blocks still carry only 4 of 9).~~ **Reversed by the 2026-09-21 reset:** there is no
+   band any more, and many colours in one block's mouth is exactly what stalls a container. A
+   mouth-only pattern wants each block's bottom rows colour-coherent.
 3. Decide whether the generator stays a throwaway prototyping aid or whether the
    authoring story is purely "paint it in Aseprite from the exported `.gpl`".
 4. Then, and only then, revisit the deferred items: Checker Window, palette
    authority refactor (Faz 2), build optimisation (Faz 3).
 
-5. Sand feel: device profiling is **done** and Stages 1–2 are in code (see
-   *Sand performance on device*). What is left there: settle on a final
-   `maxCellsPerFrame` (400000 is a starting value that meets 30 FPS), decide
-   whether 60 FPS is a goal at all (it needs more than this one knob), and the
-   two Stage-3 candidates — the 0.5 s of wasted passes after the sand stops, and
-   the per-idle-frame full-grid diff scan.
+5. Sand feel: the device profiling of 2026-09-16 measured the deleted sub-step
+   system (see *Sand performance on device*, partly superseded). For the new
+   system: profile it on device, then settle `maxCellsPerFrame` (400000 carried
+   over unchanged) and whether 60 FPS is a goal. The two old Stage-3 candidates
+   are obsolete — the new grid sleeps the pass after the last move and has no
+   idle diff scan.
 
 No commits have been made for any of this work.

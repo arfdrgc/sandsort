@@ -24,15 +24,16 @@ using UnityEditor;
 // block in one pass (see BlockColumnRangeForCube's doc comment for why an
 // arbitrary tunable distance couldn't guarantee that: a fast-moving cube
 // never dwelled on any single column long enough to drain its full depth
-// before the window moved on). Vertically, a cube reaches from its own
-// height up to tunables.extractionRangeY world units above it (one-sided;
-// never below) — VerticalRowRange converts that into grid rows. A cube is
-// eligible whenever grid.HasReachableColor finds matching-color sand within
-// that window — wherever the block-grid fill actually put it, including at
-// a negative X. The window ExtractColor is called with is recomputed from
-// the cube's current position every call, so extraction tracks it
-// continuously as the cube moves — the range is never cached in world
-// space.
+// before the window moved on). Vertically there is no reach at all: sand
+// leaves the grid only through the MOUTH — that block's columns x the bottom
+// tunables.extractionMouthRows rows of the sand (see
+// SandCylinderSandGrid.ExtractAtMouth) — wherever the collector itself
+// happens to sit in Y. A cube is eligible whenever grid.HasColorAtMouth finds
+// matching-color sand standing in that mouth; everything above it has to
+// come down by the sand simulation first. The block ExtractAtMouth is called
+// with is recomputed from the cube's current position every call, so
+// extraction tracks it continuously as the cube moves — the range is never
+// cached in world space.
 //
 // All eligible cubes extract concurrently every frame (Update loops over
 // every cube, not just a single winner) — there is no "only one stream at a
@@ -40,9 +41,9 @@ using UnityEditor;
 // explicit partitioning between neighbors any more), but in practice this
 // almost never causes real contention: adjacent blocks are always different
 // colors (see SandCylinderSandGrid.FillInitialLayers's Latin-square note),
-// and ExtractColor's own per-tick per-column cap plus sequential (not
-// concurrent-thread) processing mean even a genuine overlap just means two
-// calls see each other's mutations in order, never a double-removal.
+// and sequential (not concurrent-thread) processing means even a genuine
+// overlap just means two ExtractAtMouth calls see each other's mutations in
+// order, never a double-removal.
 //
 // Android note: the cube/stream material is passed in from
 // SandCylinderDemoBootstrap's [SerializeField] Material (an asset under
@@ -81,6 +82,13 @@ public class SandExtractionController : MonoBehaviour {
     readonly List<SandExtractionCube> cubes = new List<SandExtractionCube>();
     readonly List<Vector2Int> removedCellsBuffer = new List<Vector2Int>();
     int nextColorPointer;
+
+    // Read-only view for external collectors that draw their own grains (2026-09-22, ExtractionGrid):
+    // the cells the LAST ExtractAtPoint call actually removed — valid right after a call that returned
+    // > 0 — their world positions, and the per-colour grain systems. Nothing here changes extraction.
+    public IReadOnlyList<Vector2Int> LastRemovedCells => removedCellsBuffer;
+    public Vector3 CellToWorld(Vector2Int cell) => GridCellToWorld(cell.x, cell.y);
+    public SandExtractionParticleEffect ParticleEffect => particleEffect;
 
     // Per-cube (indexed in parallel with `cubes`) rather than a single shared
     // controller-level value: since every eligible cube now extracts
@@ -164,20 +172,19 @@ public class SandExtractionController : MonoBehaviour {
         return leftWorldX + (float)column / grid.Width * cylinderDiameter;
     }
 
-    // Converts a world Y (anywhere across the sand quad's vertical span) into
-    // the matching grid row — the Y-axis counterpart of WorldXToGridColumn,
-    // and the exact inverse of GridCellToWorld's Y mapping. The sand quad's
-    // world height is tunables.cylinderHeight, with cylinderCenterWorld.y as
-    // its bottom edge (grid row 0).
-    int WorldYToGridRow(float worldY) {
-        if (tunables.cylinderHeight <= 0f) return 0;
-        float t = (worldY - cylinderCenterWorld.y) / tunables.cylinderHeight;
-        return Mathf.RoundToInt(t * grid.Height - 0.5f);
+    // World-space Y of the extraction mouth's top edge, for gizmo/logging use
+    // only. The mouth is the bottom tunables.extractionMouthRows grid rows of
+    // the sand quad (see SandCylinderSandGrid.ExtractAtMouth), whose world
+    // height is tunables.cylinderHeight with cylinderCenterWorld.y as its
+    // bottom edge (grid row 0) — the same mapping GridCellToWorld uses.
+    float MouthTopWorldY() {
+        int mouthRows = Mathf.Clamp(tunables.extractionMouthRows, 1, grid.Height);
+        return cylinderCenterWorld.y + (float)mouthRows / grid.Height * tunables.cylinderHeight;
     }
 
     // True whenever cubeWorldX is actually within the cylinder's real
     // horizontal footprint [leftWorldX, rightWorldX]. Callers MUST check
-    // this before calling BlockColumnRangeForCube/HasReachableColor: since
+    // this before calling BlockColumnRangeForCube/HasColorAtMouth: since
     // WorldXToGridColumn clamps any out-of-range world X to column 0 or
     // width-1 rather than signaling "out of range", a cube still out on the
     // wide conveyor — nowhere near the cylinder yet — would otherwise
@@ -212,17 +219,6 @@ public class SandExtractionController : MonoBehaviour {
         int column = WorldXToGridColumn(cubeWorldX);
         (int colStart, int colEnd) = grid.GetBlockColumnRange(column);
         return (colStart, colEnd, GridColumnToWorldX(colStart), GridColumnToWorldX(colEnd));
-    }
-
-    // Converts the cube's current world Y and the Inspector's
-    // extractionRangeY into a [yStart, yEnd) grid row window, one-sided:
-    // it reaches from the cube's own height up to extractionRangeY world
-    // units above it, never below.
-    (int yStart, int yEnd) VerticalRowRange(float cubeWorldY) {
-        float rangeY = Mathf.Max(0f, tunables.extractionRangeY);
-        int rowLow = WorldYToGridRow(cubeWorldY);
-        int rowHigh = WorldYToGridRow(cubeWorldY + rangeY);
-        return (rowLow, rowHigh + 1);
     }
 
     // Builds the particle system that visualizes sand travelling from the
@@ -281,11 +277,10 @@ public class SandExtractionController : MonoBehaviour {
             if (!CubeXWithinCylinder(cubeWorldX)) continue;
 
             (int xStart, int xEnd, float xMinWorld, float xMaxWorld) = BlockColumnRangeForCube(cubeWorldX);
-            (int yStart, int yEnd) = VerticalRowRange(cube.transform.position.y);
 
-            if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, cube.ColorIndex, tunables.extractionDiagonalSpread)) continue;
+            if (!grid.HasColorAtMouth(xStart, xEnd, cube.ColorIndex)) continue;
 
-            ProcessExtraction(i, cube, xStart, xEnd, yStart, yEnd);
+            ProcessExtraction(i, cube, xStart, xEnd);
 
             if (gizmoCube == null) {
                 gizmoCube = cube;
@@ -302,9 +297,8 @@ public class SandExtractionController : MonoBehaviour {
             lastLoggedActiveCube = gizmoCube;
             if (gizmoCube != null) {
                 Vector3 p = gizmoCube.transform.position;
-                float ry = Mathf.Max(0f, tunables.extractionRangeY);
                 Debug.Log($"[SandCylinderDemo][GizmoDiag] Active cube '{gizmoCube.name}' at world ({p.x:F2}, {p.y:F2}, {p.z:F2}). " +
-                    $"Extraction rect: X [{gizmoXMinWorld:F2}, {gizmoXMaxWorld:F2}]  Y [{p.y:F2}, {p.y + ry:F2}]  Z {p.z - cubeVisualSize * 0.5f - 0.05f:F2}. " +
+                    $"Extraction mouth: X [{gizmoXMinWorld:F2}, {gizmoXMaxWorld:F2}]  Y [{cylinderCenterWorld.y:F2}, {MouthTopWorldY():F2}]  Z {p.z - cubeVisualSize * 0.5f - 0.05f:F2}. " +
                     $"controllerGO active={gameObject.activeInHierarchy}, component enabled={enabled}.");
             } else {
                 Debug.Log("[SandCylinderDemo][GizmoDiag] No active cube this frame (activeCubeForGizmos set to null).");
@@ -356,54 +350,43 @@ public class SandExtractionController : MonoBehaviour {
         // Reference lines spanning the cylinder's real width, independent of
         // activeCubeForGizmos (unlike the per-cube rectangle below) so
         // they're always visible during Play once Init has run — answers
-        // "what world-space Y level does extractionRangeY actually reach up
-        // to" without having to do the row-math by hand. Nothing to draw
-        // before Play populates cylinderCenterWorld/cylinderDiameter/
-        // conveyorY (all default to 0 beforehand, which would draw a
-        // degenerate zero-length line at Y=0 — harmless, just not
-        // meaningful — so skip it explicitly).
-        if (tunables != null && cylinderDiameter > 0f) {
+        // "how far up the sand does the extraction mouth actually go"
+        // without having to do the row-math by hand. Nothing to draw
+        // before Play populates cylinderCenterWorld/cylinderDiameter (both
+        // default to 0 beforehand, which would draw a degenerate
+        // zero-length line at Y=0 — harmless, just not meaningful — so skip
+        // it explicitly).
+        if (tunables != null && grid != null && cylinderDiameter > 0f) {
             float leftWorldX = cylinderCenterWorld.x - cylinderDiameter * 0.5f;
             float rightWorldX = cylinderCenterWorld.x + cylinderDiameter * 0.5f;
             float lineZ = cylinderCenterWorld.z - 0.1f; // just in front of the sand quad so it isn't depth-occluded
 
-            // Cyan: the real world-space Y that extractionRangeY actually reaches up to. It is
-            // ALWAYS <collector Y> + extractionRangeY (VerticalRowRange is one-sided from whatever Y
-            // the collector sits at) — but which Y that is depends on who the collector is, so the
-            // line has to follow the same split:
-            //  - conveyor path (Init): the collectors are the cubes, all riding at conveyorY.
-            //  - external-collector path (InitWithoutConveyor): there are no cubes and conveyorY is
-            //    never used by anything; the caller passes its own point to ExtractAtPoint. The
-            //    SandSort board hands it the sand's bottom edge (cylinderCenterWorld.y), so that is
-            //    the reference here.
-            // Drawing conveyorY on the external path was wrong and silently so: it only matched
-            // while SandSort's board happened to sit exactly at conveyorY, and once the board became
-            // tunable the line stayed put while the real ceiling moved (measured 2026-09-12: line
-            // -2.70 vs cells actually removed up to -1.4875, a 1.2125 error).
-            float extractionReferenceY = externalCollectorsOnly ? cylinderCenterWorld.y : conveyorY;
-            float extractionReachY = extractionReferenceY + Mathf.Max(0f, tunables.extractionRangeY);
+            // Cyan: the top edge of the extraction mouth — the bottom
+            // tunables.extractionMouthRows rows of the sand, measured up from the sand's own bottom
+            // edge (cylinderCenterWorld.y). The mouth is anchored to the sand, never to a collector,
+            // so this is the same line on the conveyor path (Init) and the external-collector path
+            // (InitWithoutConveyor) alike. Nothing above it is ever extracted.
+            float mouthTopY = MouthTopWorldY();
             Gizmos.color = Color.cyan;
-            Gizmos.DrawLine(new Vector3(leftWorldX, extractionReachY, lineZ), new Vector3(rightWorldX, extractionReachY, lineZ));
+            Gizmos.DrawLine(new Vector3(leftWorldX, mouthTopY, lineZ), new Vector3(rightWorldX, mouthTopY, lineZ));
 
             // Orange: the block-grid fill's top edge (cylinderCenterWorld.y +
             // blockGridHeight * blockCellSize / sandDensity) — how tall the
             // Tetris-piece fill is, for a direct visual comparison against
-            // the cyan reach line above (if cyan sits above orange,
-            // extractionRangeY isn't actually constraining anything — see
-            // the reasoning this was added to answer).
+            // the cyan mouth line above.
             float blockGridTopY = cylinderCenterWorld.y + tunables.EffectiveBlockGridHeight * tunables.blockCellSize / Mathf.Max(1f, tunables.sandDensity);
             Gizmos.color = new Color(1f, 0.5f, 0f);
             Gizmos.DrawLine(new Vector3(leftWorldX, blockGridTopY, lineZ), new Vector3(rightWorldX, blockGridTopY, lineZ));
 
 #if UNITY_EDITOR
             Handles.color = Color.cyan;
-            Handles.Label(new Vector3(rightWorldX + 0.1f, extractionReachY, lineZ), $"extractionRangeY reach (Y={extractionReachY:F2})");
+            Handles.Label(new Vector3(rightWorldX + 0.1f, mouthTopY, lineZ), $"Extraction mouth top (Y={mouthTopY:F2})");
             Handles.color = new Color(1f, 0.5f, 0f);
             Handles.Label(new Vector3(rightWorldX + 0.1f, blockGridTopY, lineZ), $"Block grid top (Y={blockGridTopY:F2})");
 #endif
         }
 
-        if (activeCubeForGizmos == null || tunables == null) return;
+        if (activeCubeForGizmos == null || tunables == null || grid == null) return;
 
         Vector3 pos = activeCubeForGizmos.transform.position;
 
@@ -414,7 +397,6 @@ public class SandExtractionController : MonoBehaviour {
         // the rectangle's own coordinates/edges.
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireCube(pos, Vector3.one * 2f);
-        float rangeY = Mathf.Max(0f, tunables.extractionRangeY);
 
         // Clears the cube's own RENDERED front face (pos.z - cubeVisualSize/2)
         // with a small extra margin so the rectangle never z-fights right at
@@ -423,8 +405,8 @@ public class SandExtractionController : MonoBehaviour {
 
         float xMin = activeCubeBandXMinWorld; // matches BlockColumnRangeForCube
         float xMax = activeCubeBandXMaxWorld; // matches BlockColumnRangeForCube
-        float yMin = pos.y;                   // matches VerticalRowRange: cubeY
-        float yMax = pos.y + rangeY;           // matches VerticalRowRange: cubeY + rangeY
+        float yMin = cylinderCenterWorld.y;   // the mouth's bottom edge: the sand's own bottom edge (grid row 0)
+        float yMax = MouthTopWorldY();        // the mouth's top edge: extractionMouthRows rows up
 
         Vector3 bottomLeft = new Vector3(xMin, yMin, gizmoZ);
         Vector3 bottomRight = new Vector3(xMax, yMin, gizmoZ);
@@ -432,7 +414,7 @@ public class SandExtractionController : MonoBehaviour {
         Vector3 topRight = new Vector3(xMax, yMax, gizmoZ);
 
         // Horizontal (X range) edges in red — bottom edge sits exactly at
-        // the cube's own height, top edge at the upward Y limit.
+        // the sand's bottom edge, top edge at the mouth's top row.
         Gizmos.color = Color.red;
         Gizmos.DrawLine(bottomLeft, bottomRight);
         Gizmos.DrawLine(topLeft, topRight);
@@ -465,8 +447,8 @@ public class SandExtractionController : MonoBehaviour {
     // world-X distance moved since MarkFullSincePosition, not by whether
     // matching sand is still reachable nearby.
     //
-    // This used to gate the reset on grid.HasReachableColor being false in
-    // the cube's current window instead. That broke down for a common color
+    // This used to gate the reset on "no matching sand reachable" in the
+    // cube's current window instead. That broke down for a common color
     // (e.g. the palette's first/base color, which with the default
     // cubeCount=6 > palette.Length=5 also ends up on two cubes): sand keeps
     // settling back into a narrow window as it falls, so "zero reachable
@@ -515,9 +497,9 @@ public class SandExtractionController : MonoBehaviour {
     // (MaximumCollectible — exactly one block's cell count — reached), at
     // which point RearmCompletedCubesThatHaveLeftTheZone resets it and it
     // becomes eligible again.
-    void ProcessExtraction(int cubeIndex, SandExtractionCube active, int xStart, int xEnd, int yStart, int yEnd) {
+    void ProcessExtraction(int cubeIndex, SandExtractionCube active, int xStart, int xEnd) {
         int removed = ExtractForCollector(active.ColorIndex, active.RemainingCapacity, active.transform,
-            xStart, xEnd, yStart, yEnd,
+            xStart, xEnd, 0, grid.Width,
             ref extractionAccumulators[cubeIndex], ref grainSpawnAccumulators[cubeIndex]);
 
         if (removed > 0) {
@@ -528,22 +510,46 @@ public class SandExtractionController : MonoBehaviour {
     // External-collector entry point (see InitWithoutConveyor): runs one frame of
     // extraction for a single collector point at pointWorld, applying exactly the
     // same eligibility chain Update() applies to a conveyor cube at that position —
-    // CubeXWithinCylinder, the whole containing block (BlockColumnRangeForCube), the
-    // one-sided vertical band (VerticalRowRange), HasReachableColor — then the same
-    // shared ExtractForCollector step. The caller owns the collector's remaining
-    // capacity and its two accumulators (one pair per point, like the per-cube
-    // arrays). Returns the number of cells actually removed.
+    // CubeXWithinCylinder, the whole containing block (BlockColumnRangeForCube),
+    // HasColorAtMouth — then the same shared ExtractForCollector step. Only
+    // pointWorld.x matters: the mouth is anchored to the sand's bottom rows, so
+    // pointWorld.y/z select nothing (the parameter stays a Vector3 so callers
+    // are unaffected). The caller owns the collector's remaining capacity and
+    // its two accumulators (one pair per point, like the per-cube arrays).
+    // Returns the number of cells actually removed.
+    //
+    // This overload drains the whole containing block (no contact limit).
     public int ExtractAtPoint(Vector3 pointWorld, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator) {
-        if (grid == null || remainingCapacity <= 0) return 0;
-        if (!CubeXWithinCylinder(pointWorld.x)) return 0;
+        if (grid == null) return 0;
+        return ExtractInContact(pointWorld.x, 0, grid.Width, colorIndex, remainingCapacity, grainTarget,
+            ref extractionAccumulator, ref grainSpawnAccumulator);
+    }
 
-        var (xStart, xEnd, _, _) = BlockColumnRangeForCube(pointWorld.x);
-        (int yStart, int yEnd) = VerticalRowRange(pointWorld.y);
+    // Contact-limited overload: pointWorld still picks the block, and
+    // [contactMinWorldX, contactMaxWorldX] is the collector's physically drawn
+    // footprint in world X. Only the grid columns whose centres lie inside it
+    // are extractable (see SandCylinderSandGrid's contact-limited
+    // ExtractAtMouth for the per-column row limit).
+    public int ExtractAtPoint(Vector3 pointWorld, float contactMinWorldX, float contactMaxWorldX, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator) {
+        if (grid == null) return 0;
+        float leftWorldX = cylinderCenterWorld.x - cylinderDiameter * 0.5f;
+        float columnsPerWorld = grid.Width / cylinderDiameter;
+        int contactStart = Mathf.Clamp(Mathf.CeilToInt((contactMinWorldX - leftWorldX) * columnsPerWorld - 0.5f), 0, grid.Width);
+        int contactEnd = Mathf.Clamp(Mathf.FloorToInt((contactMaxWorldX - leftWorldX) * columnsPerWorld - 0.5f) + 1, 0, grid.Width);
+        return ExtractInContact(pointWorld.x, contactStart, contactEnd, colorIndex, remainingCapacity, grainTarget,
+            ref extractionAccumulator, ref grainSpawnAccumulator);
+    }
 
-        if (!grid.HasReachableColor(xStart, xEnd, yStart, yEnd, colorIndex, tunables.extractionDiagonalSpread)) return 0;
+    int ExtractInContact(float pointWorldX, int contactStart, int contactEnd, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator) {
+        if (remainingCapacity <= 0) return 0;
+        if (!CubeXWithinCylinder(pointWorldX)) return 0;
+
+        var (xStart, xEnd, _, _) = BlockColumnRangeForCube(pointWorldX);
+
+        if (!grid.HasColorAtMouth(xStart, xEnd, colorIndex, contactStart, contactEnd)) return 0;
 
         return ExtractForCollector(colorIndex, remainingCapacity, grainTarget,
-            xStart, xEnd, yStart, yEnd, ref extractionAccumulator, ref grainSpawnAccumulator);
+            xStart, xEnd, contactStart, contactEnd, ref extractionAccumulator, ref grainSpawnAccumulator);
     }
 
     // The per-collector extraction step shared by the conveyor (ProcessExtraction) and
@@ -552,7 +558,7 @@ public class SandExtractionController : MonoBehaviour {
     // accumulators are passed in instead of being read from a SandExtractionCube and the
     // per-cube arrays.
     int ExtractForCollector(byte colorIndex, int remainingCapacity, Transform grainTarget,
-        int xStart, int xEnd, int yStart, int yEnd,
+        int xStart, int xEnd, int contactStart, int contactEnd,
         ref float extractionAccumulator, ref float grainSpawnAccumulator) {
         if (grid.GetColorCount(colorIndex) <= 0) {
             // Nothing left of this color anywhere in the cylinder — this cube
@@ -571,13 +577,12 @@ public class SandExtractionController : MonoBehaviour {
         int removed = 0;
         if (budget > 0) {
             removedCellsBuffer.Clear();
-            // extractionDiagonalSpread only widens WHICH cells are reachable (see
-            // SandCylinderSandGrid.DiagonalColumnFloor); budget and caps are unchanged.
-            removed = grid.ExtractColor(xStart, xEnd, yStart, yEnd, colorIndex, budget, removedCellsBuffer, tunables.extractionDiagonalSpread);
+            removed = grid.ExtractAtMouth(xStart, xEnd, colorIndex, budget, contactStart, contactEnd, removedCellsBuffer);
             extractionAccumulator -= budget;
         }
 
-        if (removed > 0) {
+        // A null grainTarget = the caller draws its own grains from LastRemovedCells (ExtractionGrid).
+        if (removed > 0 && grainTarget != null) {
             TrySpawnExtractionGrain(ref grainSpawnAccumulator, grainTarget, colorIndex, removedCellsBuffer);
         }
 

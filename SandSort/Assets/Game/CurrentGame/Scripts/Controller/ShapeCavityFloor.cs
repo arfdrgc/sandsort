@@ -17,7 +17,7 @@ using UnityEngine;
 // and the quad is laid out in canonical cell space under VisualRoot, so rotation and the
 // normalisation shift come along for free — the same arrangement ShapeSandFill uses.
 //
-// Independent of ShapeSandFill: that quad travels from z -0.08 toward the camera as the piece fills
+// Independent of ShapeSandFill: that quad travels from z -0.10 toward the camera as the piece fills
 // and simply passes in front of this one. Nothing here reads or writes fill.
 public class ShapeCavityFloor : MonoBehaviour {
 
@@ -26,11 +26,20 @@ public class ShapeCavityFloor : MonoBehaviour {
     const float CAVITY_FLOOR_Z = -0.092f;
 
     // How much darker than the piece's own colour. Deliberately mild: a depth cue, not a black hole.
-    const float DARKEN = 0.62f;
+    //
+    // 0.62 -> 0.92 (2026-09-21, Docs/ref_box_fill_animation.md §3): the reference's empty box floor is a
+    // flat MEDIUM tone and the first sand makes the box visibly DARKER (about -41%). At 0.62 the empty
+    // floor was already as dark as ShapeSandFill's first sand (DEEP_GAIN 0.58), so the first-contact
+    // reveal changed almost nothing on screen (measured -6%). At 0.92 the floor still sits well below
+    // the lit rim (~0.81 of it, so the piece still reads as a box) and the first sand lands ~37% darker.
+    const float DARKEN = 0.92f;
 
     // Enough texels per cell that a cell boundary always lands on a texel boundary under Point
     // filtering, which is what makes the mask exact for shapes with interior holes (T4, Plus5, U5).
     const int PIXELS_PER_CELL = 8;
+
+    // Subtracted from the quad's computed X and Y scale so the floor stays inside the rounded edges.
+    const float SCALE_INSET = 0.1f;
 
     Transform _quad;
     Renderer _renderer;
@@ -108,7 +117,12 @@ public class ShapeCavityFloor : MonoBehaviour {
         }
         _material.mainTexture = _texture;
 
-        _quad.localScale = new Vector3(_cellsWide * _cellWorldSize, _cellsHigh * _cellWorldSize, 1f);
+        // Inset by SCALE_INSET on X and Y: the FBX's cavity edges are rounded, so the full-cell-bounds
+        // quad pokes slightly past the real shape outline (2026-09-21).
+        _quad.localScale = new Vector3(
+            _cellsWide * _cellWorldSize - SCALE_INSET,
+            _cellsHigh * _cellWorldSize - SCALE_INSET,
+            1f);
         _quad.localPosition = new Vector3(
             (_minX + (_cellsWide - 1) * 0.5f) * _cellWorldSize,
             (_minY + (_cellsHigh - 1) * 0.5f) * _cellWorldSize,

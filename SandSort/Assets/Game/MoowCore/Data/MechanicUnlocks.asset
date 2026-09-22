@@ -15,7 +15,7 @@ MonoBehaviour:
   _mechanicUnlocks:
   - _mechanicSprite: {fileID: 21300000, guid: c0ab29c5542a04a2e84d1e57e4da2faf, type: 3}
     _mechanicUnrevealedSprite: {fileID: 21300000, guid: c0ab29c5542a04a2e84d1e57e4da2faf, type: 3}
-    _unlockLevelData: {fileID: 11400000, guid: ae12326447554744920640b70a09f533, type: 2}
+    _unlockLevelData: {fileID: 11400000, guid: 24326b77b3114dfca66ce90dc610649d, type: 2}
     _unlockLevel: 5
     _name: Feature
     _unlockedTitle: Unlock Feature Title

@@ -37,7 +37,12 @@ public class ShapeSandFill : MonoBehaviour {
     // z in [-0.500, 0.000] in Shape space (measured from its mesh bounds), with -0.5 the front face
     // toward the camera and 0.0 the back. So the surface starts deep inside the cavity and climbs
     // toward the rim WITHOUT ever moving in Y.
-    const float Z_EMPTY = -0.08f;
+    //
+    // Z_EMPTY -0.08 -> -0.10 (2026-09-21): at -0.08 the surface started BEHIND the FBX's own cavity floor
+    // (-0.086..-0.080) and ShapeCavityFloor's quad (-0.092), so the first ~4% of every fill — the whole
+    // first-contact reveal — was drawn and then depth-rejected. -0.10 is just in front of both, so the
+    // first sand is visible on the frame it arrives.
+    const float Z_EMPTY = -0.10f;
     const float Z_FULL = -0.44f;
 
     // Brightness of the layer as it travels: a little shaded while it is deep in the cavity, brighter
@@ -64,8 +69,48 @@ public class ShapeSandFill : MonoBehaviour {
     // darker than the lit cavity around it, so 0.92 is a measured risk, not a free change: 8% down is
     // meant to stay inside "shaded sand deep in the cavity" and not tip into "wrong colour". If a
     // low-fill piece ever reads as a different, muddier colour rather than a dimmer one, this is why.
-    const float DEEP_GAIN = 0.92f;
+    //
+    // DEEP_GAIN 0.92 -> 0.58 (2026-09-21, Docs/ref_box_fill_animation.md §3/§5). The reference box gets
+    // visibly DARKER the moment the first sand lands — mean interior blue 189 (empty floor) -> 111 — and
+    // then brightens to 227 by ~95%. 111/189 = 0.59 of the base colour, which is what 0.58 reproduces;
+    // RIM_GAIN stays at its 1.10 headroom ceiling (the reference's 1.20 would clip), so the deep/full
+    // ratio here is 0.53 against the reference's 0.49. The ramp between the two is not linear any more —
+    // see BRIGHTNESS_CURVE.
+    const float DEEP_GAIN = 0.58f;
     const float RIM_GAIN = 1.10f;
+
+    // Where the layer sits between DEEP_GAIN (0) and RIM_GAIN (1) at a given fill — the reference's
+    // measured mean-interior blue channel (§5 table), normalised between its darkest (111) and its
+    // brightest (227). Flat and dark through ~32%, near-linear up to ~80%, eased out by 95%, flat to 100%.
+    // Evaluated piecewise-linearly; pairs of (fill, level).
+    static readonly float[] BRIGHTNESS_CURVE = {
+        0.00f, 0.00f,
+        0.32f, 0.00f,
+        0.39f, 0.09f,
+        0.50f, 0.30f,
+        0.60f, 0.48f,
+        0.70f, 0.66f,
+        0.80f, 0.84f,
+        0.90f, 0.96f,
+        0.95f, 1.00f,
+        1.00f, 1.00f,
+    };
+
+    // Grain contrast relative to the tuned colour noise, by fill (§5.2: per-pixel spread is lowest when
+    // the sand is dark and deep, peaks around 70–80%, and eases back slightly when nearly full —
+    // measured 6.3% / 8.2% / 6.2% of the mean). Pairs of (fill, multiplier on sandFillColorNoiseAmount).
+    static readonly float[] GRAIN_CONTRAST_CURVE = {
+        0.00f, 0.77f,
+        0.32f, 0.77f,
+        0.75f, 1.00f,
+        0.95f, 0.76f,
+        1.00f, 0.76f,
+    };
+
+    // The inner wall shadow shrinks as the surface rises toward the rim (§5.3). The edge darken
+    // multiplier is scaled from 1 at empty down to this at full; the tuned sandFillEdgeDarken is still
+    // the amount at the bottom of the cavity.
+    const float WALL_SHADOW_AT_FULL = 0.5f;
 
     // Per-pixel brightness jitter. Same formula as SandCylinderTunables.colorNoiseAmount, but its own
     // amount (2026-09-17): the sand area's 0.14 reads as grain at a piece's much smaller on-screen
@@ -127,10 +172,16 @@ public class ShapeSandFill : MonoBehaviour {
     //               static. It is kept as its own constant so the churn can be tuned on its own.
     const float CHURN_RATE = 37f;
 
-    // Settling-in: below this fill the floor is only partly covered, by grains scattered evenly over
-    // the WHOLE mask (a per-texel hash threshold), so the first sand appears everywhere at once rather
-    // than as a solid sheet popping in. Above it the layer is solid and only depth moves.
-    const float COVER_FILL = 0.12f;
+    // FIRST-CONTACT REVEAL (2026-09-21, replaces the old fill-driven COVER_FILL scatter; reference §3).
+    // The very first sand does not appear evenly: the empty floor is swallowed by a ragged, dithered blob
+    // growing out from the middle of the piece, over ~0.12–0.17 s, and it happens once only. It is timed,
+    // not fill-driven — in the reference the reveal is done while the label is still in the teens, and
+    // a piece that only ever gets a few percent must still end up covered.
+    //   REVEAL_DURATION   seconds from the first non-zero fill to a fully covered floor.
+    //   REVEAL_DITHER     share of each texel's threshold that is per-texel noise rather than distance;
+    //                     this is what makes the blob's edge ragged instead of a clean circle.
+    const float REVEAL_DURATION = 0.16f;
+    const float REVEAL_DITHER = 0.3f;
 
     // The Shape FBXs round every CONVEX outer corner — a cell corner whose two orthogonal neighbours
     // are both empty — with a 0.080 radius at the authored 0.85 cell, measured from the meshes'
@@ -155,9 +206,11 @@ public class ShapeSandFill : MonoBehaviour {
     const float WALL_INSET_CELLS = 0.110f / 0.85f;
     const float FALLOFF_CELLS = 0.45f;
 
-    // How fast the drawn fill chases the real one, and how much it has to move before the texture is
-    // worth rewriting. The texture is NOT rebuilt per frame — only when the drawn value actually moves.
-    const float FILL_SHARPNESS = 7f;
+    // How much the fill has to move before the texture is worth rewriting. The texture is NOT rebuilt
+    // per frame — only when the fill actually moves. There is deliberately NO smoothing of the fill any
+    // more (2026-09-21, reference §4/§5): the picture steps exactly when the label steps, the moment the
+    // sand leaves the band, so extraction's own bursts and plateaus show as a staircase instead of being
+    // blurred into a ramp. (It used to chase the target with FILL_SHARPNESS 7, i.e. ~0.3 s behind.)
     const float REBUILD_EPSILON = 1f / 160f;
 
     Transform _quad;
@@ -172,10 +225,18 @@ public class ShapeSandFill : MonoBehaviour {
     bool[] _texelMask;   // _mask per texel, with the convex corners rounded off
     float[] _edgeFalloff; // per-texel 1 - smoothstep(distance): 1 at the visible wall line, 0 inside. Darken-independent.
     float[] _edgeShade;   // per-texel colour multiplier, 1 - edgeDarken * _edgeFalloff
+    float[] _edgeCells;   // per-texel distance to the silhouette, in cells (negative outside it). Grain landing (grainLanding) only.
 
     // Per-texel re-roll offset, 0..1. Static, built with the mask: it is what staggers the grains so
     // they turn over independently rather than the whole texture flashing on one fill step.
     float[] _grainPhase;
+
+    // Per-texel reveal progress (0..1) at which that texel is first covered: mostly its distance from
+    // the pour origin, plus REVEAL_DITHER of noise. Rebuilt with the origin.
+    float[] _revealThreshold;
+    // 0 = floor still empty, 1 = fully covered. Advanced by time in Update, never by fill.
+    float _reveal;
+    bool _revealing;
 
     // Source of the edge darken amount; null = GameplayTunables' default. _edgeDarken is the value the
     // current _edgeShade was built with, so a change in the Inspector is noticed and applied in Update.
@@ -203,7 +264,6 @@ public class ShapeSandFill : MonoBehaviour {
     bool _built;
 
     Color _baseColor = Color.white;
-    float _target;
     float _drawn = -1f;
     float _lastDrawnTexture = -1f;
 
@@ -240,6 +300,8 @@ public class ShapeSandFill : MonoBehaviour {
     // the grain target (2026-09-13), so the falling sand lands on the heap instead of on the cell it
     // was pulled through and the two read as one pour. Nothing about the fill picture, the mask or the
     // fill curve is affected by this — it is a marker, and this class never reads it back.
+    // Since 2026-09-22 grains are no longer aimed at it (they fall straight down, see grainLanding);
+    // nothing in the game reads it any more.
     Transform _pourTarget;
 
     public Transform pourTarget => _pourTarget;
@@ -264,6 +326,7 @@ public class ShapeSandFill : MonoBehaviour {
 
     // Called by Shape once Container has handed over both the real cell size and the level's unlit
     // sand material. Safe to call again: it rebuilds the mask and leaves the current fill alone.
+    // `unlitSource` is the alpha-clipped mask material the fill quad copies.
     public void configure(Transform visualRoot, IReadOnlyList<Vector2Int> canonicalCells, float cellWorldSize, Material unlitSource) {
         if (visualRoot == null || canonicalCells == null || canonicalCells.Count == 0 || unlitSource == null) return;
         if (cellWorldSize <= 0f) return;
@@ -283,24 +346,42 @@ public class ShapeSandFill : MonoBehaviour {
         if (_built) redraw(Mathf.Max(0f, _drawn));
     }
 
-    // What is actually on screen right now (the animated value, not the requested one). Read-only,
-    // for tooling — nothing in the game reads it.
+    // What is actually on screen right now. Read-only, for tooling — nothing in the game reads it.
     public float drawnFill => Mathf.Max(0f, _drawn);
 
-    // The only value this class takes from gameplay: Container.fillLevel, 0..1.
+    // The only value this class takes from gameplay: Container.fillLevel, 0..1. Applied as-is, with
+    // no tween: the fill is shown in the same steps the label and the sand band move in.
     public void setFill(float normalized) {
-        _target = Mathf.Clamp01(normalized);
-        // First value seen lands instantly, so a level that starts part-filled does not animate up
-        // from zero on load.
-        if (_drawn < 0f) _drawn = _target;
+        float value = Mathf.Clamp01(normalized);
+
+        if (_drawn < 0f) {
+            // First value seen lands instantly and fully revealed, so a level that starts part-filled
+            // does not animate on load.
+            _drawn = value;
+            _reveal = value > 0f ? 1f : 0f;
+            return;
+        }
+
+        float previous = _drawn;
+        _drawn = value;
+
+        if (value <= 0f) {
+            // Emptied (a reset): the next sand gets a fresh first-contact reveal.
+            _reveal = 0f;
+            _revealing = false;
+            return;
+        }
+
+        if (previous <= 0f && _reveal <= 0f) _revealing = true;
     }
 
     void Update() {
         if (!_built) return;
 
-        if (!Mathf.Approximately(_drawn, _target)) {
-            _drawn = Mathf.Lerp(_drawn, _target, 1f - Mathf.Exp(-FILL_SHARPNESS * Time.deltaTime));
-            if (Mathf.Abs(_target - _drawn) < 0.0005f) _drawn = _target;
+        if (_revealing) {
+            _reveal = Mathf.Min(1f, _reveal + Time.deltaTime / REVEAL_DURATION);
+            if (_reveal >= 1f) _revealing = false;
+            _lastDrawnTexture = -1f;   // one redraw per frame while the blob grows
         }
 
         applyDepth(_drawn);
@@ -320,7 +401,81 @@ public class ShapeSandFill : MonoBehaviour {
             _lastDrawnTexture = -1f;
         }
 
-        if (Mathf.Abs(_drawn - _lastDrawnTexture) >= REBUILD_EPSILON || _lastDrawnTexture < 0f) redraw(_drawn);
+        // The last step to full is always drawn, however small, so 100% is exactly the full picture.
+        if (Mathf.Abs(_drawn - _lastDrawnTexture) >= REBUILD_EPSILON || _lastDrawnTexture < 0f
+            || (_drawn >= 1f && _lastDrawnTexture < 1f)) redraw(_drawn);
+    }
+
+    // ---- where an extraction grain lands -------------------------------------------------------
+
+    // The falling grains belong to the sand (SandExtractionParticleEffect.SpawnFallingGrain), spawned by
+    // ExtractionGrid from the cells extraction actually removed (2026-09-22; this class used to run its
+    // own fill-driven burst). All it answers is where a grain falling straight down at a world X comes to
+    // rest in THIS piece: the top of the opening in that column, then GRAIN_LAND_MIN..MAX of that
+    // column's own opening depth — so a grain over a T's arm or an L's foot lands on that cell's floor,
+    // never through it, and most land in the upper part of the piece (reference §7: 40–60% of the
+    // interior, here started nearer the rim because the grain now comes from above it).
+    const float GRAIN_LAND_MIN = 0.1f;
+    const float GRAIN_LAND_MAX = 0.6f;
+    // A grain's square must stay WALL_INSET_CELLS inside the silhouette by its half-diagonal too.
+    const float GRAIN_HALF_EXTENT = 0.71f;
+
+    SandCylinderTunables _sandTunables;
+
+    // What an incoming grain follows while it is above the rim: VisualRoot, i.e. the piece as drawn,
+    // so a dragged piece carries the stream with it.
+    public Transform grainIntake => _quad != null ? _quad.parent : null;
+
+    // rimY is the piece's top edge: a grain above it is still on its way in and follows the piece (see
+    // grainIntake); below it the grain is inside and falls on its own. planeZ is the piece's cell-visual
+    // plane (VisualRoot's local z 0), which the grain draws in front of. False when that X is over no
+    // opening (a wall, or past the piece); landingY is then the rim.
+    public bool grainLanding(float worldX, out float landingY, out float rimY, out float planeZ) {
+        landingY = 0f;
+        rimY = 0f;
+        planeZ = 0f;
+        if (!_built || _quad == null || _renderer == null || _edgeCells == null) return false;
+
+        // World +Y is "down into the piece" whatever its rotation, so the search runs in world space
+        // and is only mapped to texels for the tests.
+        Transform root = _quad.parent;
+        planeZ = root.position.z;
+        float cellWorld = _cellWorldSize * Mathf.Abs(root.lossyScale.x);
+        float texelWorld = cellWorld / PIXELS_PER_CELL;
+        Bounds bounds = _renderer.bounds;
+        Matrix4x4 worldToQuad = _quad.worldToLocalMatrix;
+        rimY = bounds.max.y;
+        landingY = rimY;
+
+        if (_sandTunables == null) _sandTunables = FindAnyObjectByType<SandCylinderTunables>();
+        float sizeCells = _sandTunables != null ? _sandTunables.particleSize / cellWorld : 0f;
+        float clearance = WALL_INSET_CELLS + sizeCells * GRAIN_HALF_EXTENT;
+
+        // Down from the piece's top to the first open texel in this column.
+        var top = new Vector3(worldX, bounds.max.y, bounds.center.z);
+        while (top.y > bounds.min.y && !openAt(worldToQuad, top, clearance)) top.y -= texelWorld;
+        if (top.y <= bounds.min.y) return false;
+
+        float depth = clearRun(worldToQuad, top, Vector3.down, texelWorld, clearance);
+        landingY = top.y - Random.Range(GRAIN_LAND_MIN, GRAIN_LAND_MAX) * depth;
+        return true;
+    }
+
+    // How far a grain can travel from `start` along `direction` (world, unit) and stay in the opening.
+    float clearRun(Matrix4x4 worldToQuad, Vector3 start, Vector3 direction, float texelWorld, float clearance) {
+        int maxSteps = _texWidth + _texHeight;
+        int steps = 0;
+        while (steps < maxSteps && openAt(worldToQuad, start + direction * (texelWorld * (steps + 1)), clearance)) steps++;
+        return steps * texelWorld;
+    }
+
+    // Inside the silhouette and at least `clearanceCells` from it.
+    bool openAt(Matrix4x4 worldToQuad, Vector3 world, float clearanceCells) {
+        Vector3 local = worldToQuad.MultiplyPoint3x4(world);
+        int px = Mathf.FloorToInt((local.x + 0.5f) * _texWidth);
+        int py = Mathf.FloorToInt((local.y + 0.5f) * _texHeight);
+        if (px < 0 || py < 0 || px >= _texWidth || py >= _texHeight) return false;
+        return maskedAt(px, py) && _edgeCells[px + py * _texWidth] >= clearanceCells;
     }
 
     // ---- geometry ----------------------------------------------------------------------------
@@ -384,6 +539,17 @@ public class ShapeSandFill : MonoBehaviour {
             }
         }
         if (_maxRadius <= 0f) _maxRadius = 0.5f;
+
+        // First-contact reveal order: centre first, walls last, with a dithered edge. The largest
+        // threshold is exactly 1, so the floor is fully covered the moment _reveal reaches 1.
+        _revealThreshold = new float[_texWidth * _texHeight];
+        for (int py = 0; py < _texHeight; py++) {
+            for (int px = 0; px < _texWidth; px++) {
+                float d = Mathf.Clamp01(distanceToNearestOrigin(px, py) / _maxRadius);
+                _revealThreshold[px + py * _texWidth] =
+                    (1f - REVEAL_DITHER) * d + REVEAL_DITHER * Hash01(px * 7 + 1, py * 3 + 5);
+            }
+        }
     }
 
     // Distance from a texel to the nearest pour point, in cells. With one origin this is exactly the
@@ -440,11 +606,13 @@ public class ShapeSandFill : MonoBehaviour {
         }
 
         _edgeFalloff = new float[_texWidth * _texHeight];
+        _edgeCells = new float[_texWidth * _texHeight];
         for (int py = 0; py < _texHeight; py++) {
             for (int px = 0; px < _texWidth; px++) {
                 int i = (px + 1) + (py + 1) * w;
                 // Centre-to-centre distance less half a texel = distance to the silhouette edge.
                 float edgeCells = (Mathf.Sqrt((float)ox[i] * ox[i] + (float)oy[i] * oy[i]) - 0.5f) / PIXELS_PER_CELL;
+                _edgeCells[px + py * _texWidth] = edgeCells;
                 float t = Mathf.Clamp01((edgeCells - WALL_INSET_CELLS) / FALLOFF_CELLS);
                 _edgeFalloff[px + py * _texWidth] = 1f - Mathf.SmoothStep(0f, 1f, t);
             }
@@ -572,9 +740,12 @@ public class ShapeSandFill : MonoBehaviour {
         fill = Mathf.Clamp01(fill);
         bool empty = fill <= 0.0001f;
 
-        // Fraction of the floor covered (1 once settled), and the one colour for the whole layer.
-        float coverage = Mathf.Clamp01(fill / COVER_FILL);
-        Color c = _baseColor * Mathf.Lerp(DEEP_GAIN, RIM_GAIN, fill);
+        // How far the first-contact blob has grown (1 once settled), and the one colour for the whole
+        // layer, following the reference's measured brightness curve.
+        float reveal = _reveal;
+        Color c = _baseColor * Mathf.Lerp(DEEP_GAIN, RIM_GAIN, evaluate(BRIGHTNESS_CURVE, fill));
+        float noise = _colorNoise * evaluate(GRAIN_CONTRAST_CURVE, fill);
+        float wallShadow = Mathf.Lerp(1f, WALL_SHADOW_AT_FULL, fill);
 
         // Where every grain is in its own re-roll sequence at this fill. Adding the static per-texel
         // phase before the floor is what staggers them; the fill is the only clock, so this stops dead
@@ -589,18 +760,18 @@ public class ShapeSandFill : MonoBehaviour {
                 if (!maskedAt(px, py)) { _pixels[i] = new Color32(0, 0, 0, 0); continue; }
                 if (empty) { _pixels[i] = new Color32(0, 0, 0, 0); continue; }
 
-                // Evenly scattered grains while settling; solid once coverage reaches 1.
-                if (coverage < 1f && Hash01(px, py) >= coverage) { _pixels[i] = new Color32(0, 0, 0, 0); continue; }
+                // First-contact blob: a texel is floor until the reveal has grown past it.
+                if (reveal < 1f && _revealThreshold[i] > reveal) { _pixels[i] = new Color32(0, 0, 0, 0); continue; }
 
                 // The grain, and the whole of the movement. Each texel re-rolls its shade every time
                 // its own roll index ticks over; between ticks it is bit-for-bit the shade it had.
                 int roll = Mathf.FloorToInt(churn + _grainPhase[i]);
-                float mul = 1f + (Hash01(px + 31, py + 17, roll) - 0.5f) * _colorNoise;
+                float mul = 1f + (Hash01(px + 31, py + 17, roll) - 0.5f) * noise;
 
                 // Shading goes on AFTER the clamp: RIM_GAIN pushes bright colours (yellow's R) past
                 // 255, and a multiplier applied before the clamp would be clipped away. The edge
-                // darken term is untouched: same table, same value, same slot as it has always had.
-                float shade = _edgeShade[i];
+                // darken table is untouched; only its strength eases off as the surface nears the rim.
+                float shade = 1f - (1f - _edgeShade[i]) * wallShadow;
                 _pixels[i] = new Color32(
                     channel(c.r, mul, shade),
                     channel(c.g, mul, shade),
@@ -618,6 +789,17 @@ public class ShapeSandFill : MonoBehaviour {
     // cast would WRAP a 255 channel round to near 0.
     static byte channel(float value, float mul, float shade) =>
         (byte)Mathf.Clamp(Mathf.Clamp(value * 255f * mul, 0f, 255f) * shade, 0f, 255f);
+
+    // Piecewise-linear lookup over (x, y) pairs sorted by x; clamped at both ends.
+    static float evaluate(float[] curve, float x) {
+        if (x <= curve[0]) return curve[1];
+        for (int k = 2; k < curve.Length; k += 2) {
+            if (x > curve[k]) continue;
+            float t = (x - curve[k - 2]) / Mathf.Max(0.0001f, curve[k] - curve[k - 2]);
+            return Mathf.Lerp(curve[k - 1], curve[k + 1], t);
+        }
+        return curve[curve.Length - 1];
+    }
 
     // Same hash SandCylinderRenderer uses, so the two grains come from one family.
     static float Hash01(int x, int y) {

@@ -245,7 +245,23 @@ public class Shape : MonoBehaviour {
     // refreshFillBadge, which is what TMP's old <mark> highlight could not give — it has no rounded
     // corners. The text keeps its bold number and smaller per-cent sign from
     // Docs/selected_sand_idea_mockup.png.
+    //
+    // Staircase (2026-09-21): `normalized` is the REAL fill; what is displayed is FillStaircase's
+    // `shown`, which trails it and moves in bursts and plateaus like the reference. Both the label and
+    // the sand fill are fed from that one value (showFill), so they always move together.
     public void setFillPercent(float normalized) {
+        if (_fillSteps == null) _fillSteps = new FillStaircase();
+        if (_fillSteps.setTarget(normalized)) showFill(_fillSteps.shown);
+    }
+
+    void Update() {
+        if (_fillSteps != null && _fillSteps.tick(Time.deltaTime)) showFill(_fillSteps.shown);
+    }
+
+    // Runtime-only display state; recreated (and snapped to the next real value) after a domain reload.
+    [System.NonSerialized] FillStaircase _fillSteps;
+
+    void showFill(float normalized) {
         // The sand-fill visual reads the same 0..1 figure, and reads it FIRST so a shape with no
         // readout wired up still fills. No second capacity model here either — see ShapeSandFill.
         if (_sandFill != null) _sandFill.setFill(normalized);
@@ -269,14 +285,18 @@ public class Shape : MonoBehaviour {
     public void setSandFillSource(Material unlitSource, Material colorMaterial, GameplayTunables tuning = null) {
         if (unlitSource == null || _visualRoot == null || _canonicalCells == null || _canonicalCells.Count == 0) return;
 
+        // The two masked quads copy the pre-authored alpha-clipped material (GameplayTunables
+        // .shapeMaskMaterial) so the alpha-test variant survives into player builds.
+        Material maskSource = tuning != null && tuning.shapeMaskMaterial != null ? tuning.shapeMaskMaterial : unlitSource;
+
         if (_sandFill == null) _sandFill = gameObject.AddComponent<ShapeSandFill>();
         _sandFill.setTuning(tuning);
-        _sandFill.configure(_visualRoot, _canonicalCells, _cellWorldSize, unlitSource);
+        _sandFill.configure(_visualRoot, _canonicalCells, _cellWorldSize, maskSource);
 
         // Same two materials also drive the darkened cavity floor behind the sand — a separate,
         // independent visual (see ShapeCavityFloor); the fill never reads it and it never reads fill.
         if (_cavityFloor == null) _cavityFloor = gameObject.AddComponent<ShapeCavityFloor>();
-        _cavityFloor.configure(_visualRoot, _canonicalCells, _cellWorldSize, unlitSource);
+        _cavityFloor.configure(_visualRoot, _canonicalCells, _cellWorldSize, maskSource);
 
         if (colorMaterial != null && colorMaterial.HasProperty(BASE_COLOR_ID)) {
             Color baseColor = colorMaterial.GetColor(BASE_COLOR_ID);

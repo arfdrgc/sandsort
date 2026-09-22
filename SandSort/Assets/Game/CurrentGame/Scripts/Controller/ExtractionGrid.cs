@@ -6,8 +6,8 @@ using UnityEngine;
 // frame it reads the Container's position, so there is no position of its own to keep in sync.
 //
 // It never extracts by itself. Each extraction point is handed to
-// SandExtractionController.ExtractAtPoint, which runs the demo's own eligibility, budget, color
-// filtering and particle logic unchanged.
+// SandExtractionController.ExtractAtPoint, which runs the demo's own eligibility, budget and color
+// filtering unchanged. The falling grains are drawn here from what it removed — see GRAINS.
 //
 // EXTRACTION RULE (confirmed 2026-09-11): a point only extracts while its cell sits in the Board's
 // top row — the row closest to the sand area. Shapes further down never extract, even with empty
@@ -177,6 +177,16 @@ public class ExtractionGrid : MonoBehaviour {
     int _shapeMinX;
     int _shapeMaxX;
 
+    // PHYSICAL CONTACT (2026-09-21): per shape cell, this frame's contact span in board-cell units —
+    // the drawn X span of the unbroken run of ACTIVE profile points that cell belongs to (a 2x2 is one
+    // run; a notch or an inactive extra splits it). Written by gatherOverlappingColumns for active
+    // points only and read through _candidateOwners, so the candidate sort needs no extra arrays.
+    // Update hands the span to ExtractAtPoint, which only extracts from the sand columns whose centres
+    // lie inside it: touching a block no longer exposes the whole block.
+    float[] _contactLow;
+    float[] _contactHigh;
+    bool[] _profileActive;
+
     public void initialize(Container container, Board board, SandExtractionController sandExtraction, float sandBottomWorldY, GameplayTunables tuning) {
         _container = container;
         _board = board;
@@ -187,8 +197,13 @@ public class ExtractionGrid : MonoBehaviour {
         int columnCount = board.size.x;
         _extractionAccumulators = new float[columnCount];
         _grainSpawnAccumulators = new float[columnCount];
+        _grainCarry = new float[columnCount];
 
         buildTopProfile(container.shape);
+        int cellCount = container.shape != null ? container.shape.Count : 0;
+        _contactLow = new float[cellCount];
+        _contactHigh = new float[cellCount];
+        _profileActive = new bool[_profileCells.Length];
 
         // One profile cell spans exactly one cell and so reaches at most TWO columns, and a column is
         // never listed twice — so both bounds hold and the smaller one sizes the buffers.
@@ -279,26 +294,20 @@ public class ExtractionGrid : MonoBehaviour {
             Vector3 point = _board.cellToWorldCenter(new Vector2Int(column, _board.topRow));
             point.y = _sandBottomWorldY;
 
-            // GRAIN TARGET ONLY (2026-09-13): where the falling sand is AIMED, never where it is taken
-            // from. `point` above is the extraction site and is untouched by this — the column, the
-            // bottom-up rule, the budget and the accumulators all still run off it, so the amount of
-            // sand a shape pulls is exactly what it was.
-            //
-            // The grains are aimed at the spot ShapeSandFill grows its heap from, so the stream and
-            // the heap read as one pour. Aiming at cellVisual instead — the cell the sand was pulled
-            // through — puts the landing 0.25 to 1.28 cells away from the heap on a 4-5 cell piece,
-            // and on a multi-cell top edge (T4, Z4, U5) it splits the stream into two or three
-            // ribbons that miss the heap on both sides. cellVisual stays as the fallback for a piece
-            // with no fill visual.
-            Transform grainTarget = _container.sandPourTarget != null
-                ? _container.sandPourTarget
-                : _container.cellVisual(_candidateOwners[k]);
+            // PHYSICAL CONTACT: the owner cell's run span, in world X. Board and sand share one X
+            // mapping (see the EXTRACTION FOOTPRINT note), so this is the span of sand actually under
+            // the drawn shape.
+            int owner = _candidateOwners[k];
+            float contactMinX = _board.anchorPointToWorldCenter(new Vector2(_contactLow[owner], _board.topRow), _container.shape).x;
+            float contactMaxX = _board.anchorPointToWorldCenter(new Vector2(_contactHigh[owner], _board.topRow), _container.shape).x;
 
             int removed = _sandExtraction.ExtractAtPoint(
                 point,
+                contactMinX,
+                contactMaxX,
                 _container.sandColorIndex,
                 _container.remainingCapacity,
-                grainTarget,
+                null,   // no grain target: the grains are drawn below, from the cells actually removed
                 ref _extractionAccumulators[column],
                 ref _grainSpawnAccumulators[column]);
 
@@ -307,7 +316,49 @@ public class ExtractionGrid : MonoBehaviour {
             if (removed <= 0) continue;
 
             _container.addCollected(removed);
+            spawnGrains(column, removed);
             used++;
+        }
+    }
+
+    // GRAINS (2026-09-22): the falling sand is drawn from the extraction itself, not aimed at the shape.
+    // Every grain starts at a cell this very call removed (LastRemovedCells), keeps that cell's X and
+    // falls straight down into the piece, landing where ShapeSandFill.grainLanding says that column's
+    // opening is. While a grain is still above the piece's rim it moves with the piece (a dragged
+    // shape carries its incoming stream); once it is past the rim it is on its own in world space.
+    //
+    // Density follows the amount removed. Measured on a 2x2 at ~55 fps: 1–30 cells per call (the cap is
+    // the rate budget, sandExtractionRate * dt ≈ 29), ~35 per frame for the whole piece at full flow,
+    // ~18 through the middle, a 1–8 tail as the colour runs out. One grain per CELLS_PER_GRAIN cells,
+    // with the remainder carried per column, gives ~9 grains a frame at full flow and one every few
+    // frames in the tail. MAX_GRAINS_PER_CALL sits just above the 30-cell call, so it only bites on a
+    // frame hitch (the tick budget can reach maximumSandFlowRate, 400); the excess is dropped, not
+    // carried, so a hitch never turns into a burst.
+    const float CELLS_PER_GRAIN = 4f;
+    const int MAX_GRAINS_PER_CALL = 8;
+
+    float[] _grainCarry;
+    ShapeSandFill _sandFill;
+
+    void spawnGrains(int column, int removed) {
+        SandExtractionParticleEffect effect = _sandExtraction.ParticleEffect;
+        IReadOnlyList<Vector2Int> cells = _sandExtraction.LastRemovedCells;
+        if (effect == null || cells.Count == 0) return;
+        if (_sandFill == null) _sandFill = _container.GetComponentInChildren<ShapeSandFill>();
+        if (_sandFill == null) return;
+
+        _grainCarry[column] += removed / CELLS_PER_GRAIN;
+        int count = Mathf.FloorToInt(_grainCarry[column]);
+        _grainCarry[column] -= count;
+        count = Mathf.Min(count, MAX_GRAINS_PER_CALL);
+
+        // Stratified over the removed list, so the grains spread across every column the mouth
+        // actually worked this call instead of clumping on a few random cells.
+        for (int n = 0; n < count; n++) {
+            Vector2Int cell = cells[Mathf.Min(cells.Count - 1, (int)((n + Random.value) * cells.Count / count))];
+            Vector3 source = _sandExtraction.CellToWorld(cell);
+            _sandFill.grainLanding(source.x, out float landingY, out float rimY, out float planeZ);
+            effect.SpawnFallingGrain(source, landingY, rimY, planeZ, _sandFill.grainIntake, _container.sandColorIndex);
         }
     }
 
@@ -334,15 +385,30 @@ public class ExtractionGrid : MonoBehaviour {
         bool atRightEdge = _container.gridPosition.x + _shapeMaxX == _board.size.x - 1;
 
         List<Vector2Int> shape = _container.shape;
-        int activePoints = 0;
         for (int p = 0; p < _profileCells.Length; p++) {
             byte gate = _profileGates[p];
-            if (gate == GATE_NEVER) continue;
-            if (gate == GATE_LEFT_EDGE && !atLeftEdge) continue;
-            if (gate == GATE_RIGHT_EDGE && !atRightEdge) continue;
+            _profileActive[p] = gate == GATE_ALWAYS
+                || (gate == GATE_LEFT_EDGE && atLeftEdge)
+                || (gate == GATE_RIGHT_EDGE && atRightEdge);
+        }
+
+        int activePoints = 0;
+        for (int p = 0; p < _profileCells.Length; p++) {
+            if (!_profileActive[p]) continue;
 
             int i = _profileCells[p];
             activePoints++;
+
+            // Contact span of this point's run: neighbouring profile points are one column apart
+            // exactly when the shape has no gap there, so walk out while both hold.
+            int first = p;
+            while (first > 0 && _profileActive[first - 1]
+                && shape[_profileCells[first - 1]].x == shape[_profileCells[first]].x - 1) first--;
+            int last = p;
+            while (last < _profileCells.Length - 1 && _profileActive[last + 1]
+                && shape[_profileCells[last + 1]].x == shape[_profileCells[last]].x + 1) last++;
+            _contactLow[i] = visualAnchor.x + shape[_profileCells[first]].x - 0.5f;
+            _contactHigh[i] = visualAnchor.x + shape[_profileCells[last]].x + 0.5f;
 
             // This one cell's footprint in board cell units. Column c covers [c - 0.5, c + 0.5], so
             // it is touched exactly when c lies strictly inside (low - 0.5, high + 0.5), and the

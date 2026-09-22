@@ -18,9 +18,9 @@ using UnityEngine;
 [RequireComponent(typeof(SandCylinderSandGrid))]
 public class SandCylinderRenderer : MonoBehaviour {
 
-    // Near-black, matching the mockup's sand panel (#0A0B12): the darker the backdrop, the more
-    // the grain colours read. Purely visual — the grid, the fill and the extraction never see it.
-    [SerializeField] Color32 backgroundColor = new Color32(10, 11, 18, 255);
+    // Neutral grey (#A6A6A6) behind the empty cells. Purely visual — the grid, the fill and the
+    // extraction never see it.
+    [SerializeField] Color32 backgroundColor = new Color32(166, 166, 166, 255);
 
     SandCylinderSandGrid grid;
     Texture2D texture;
@@ -29,9 +29,11 @@ public class SandCylinderRenderer : MonoBehaviour {
     int builtWidth, builtHeight;
 
     // CHANGE GATE (2026-09-16). The texture is a pure function of the grid's
-    // cells plus colorNoiseAmount and the sandColors palette, so on a frame
-    // where none of those changed the rebuild below would recompute the exact
-    // same pixels and re-upload them. On device (Mi 9T, IL2CPP) that cost
+    // cells and their per-grain tints plus colorNoiseAmount and the sandColors
+    // palette — and a tint only ever changes together with its cell, through
+    // the grid's Place/Move/Remove primitives, each of which bumps
+    // CellsVersion — so on a frame where none of those changed the rebuild
+    // below would recompute the exact same pixels and re-upload them. On device (Mi 9T, IL2CPP) that cost
     // 11.3 ms/frame on the 306x306 9-colour grid *while the sand was static* —
     // 42% of a 27 ms frame. These fields record the inputs of the last
     // completed draw; LateUpdate returns early when they all still match.
@@ -97,7 +99,11 @@ public class SandCylinderRenderer : MonoBehaviour {
                     pixels[i] = backgroundColor;
                 } else {
                     Color32 baseColor = palette[(c - 1) % palette.Length];
-                    float n = Hash01(x, y);
+                    // The grain's own persistent tint, not a function of (x, y): it was
+                    // assigned when the grain was created and travels with it through every
+                    // move (see SandCylinderSandGrid.tint), so the grain pattern falls and
+                    // collapses together with the sand instead of staying pinned to the quad.
+                    float n = grid.GetTint(x, y) * (1f / 255f);
                     float mul = 1f + (n - 0.5f) * noiseAmount;
                     pixels[i] = new Color32(
                         (byte)Mathf.Clamp(baseColor.r * mul, 0, 255),
@@ -130,10 +136,5 @@ public class SandCylinderRenderer : MonoBehaviour {
             if (drawnPalette[i] != palette[i]) return true;
         }
         return false;
-    }
-
-    static float Hash01(int x, int y) {
-        float v = Mathf.Sin(x * 12.9898f + y * 78.233f) * 43758.5453f;
-        return v - Mathf.Floor(v);
     }
 }

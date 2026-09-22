@@ -112,4 +112,14 @@ public class GameplayTunables : ScriptableObject {
     [Range(0f, 0.4f)]
     [SerializeField] float _sandFillDepthAmount = DEFAULT_SAND_FILL_DEPTH_AMOUNT;
     public float sandFillDepthAmount => _sandFillDepthAmount;
+
+    // The source material for the masked Shape quads (ShapeCavityFloor, ShapeSandFill). It must be a
+    // URP Unlit material AUTHORED with alpha clipping on (_ALPHATEST_ON): _ALPHATEST_ON is a
+    // shader_feature, so a player build only keeps that variant if a material in the build uses it.
+    // Enabling it on a runtime copy of the opaque sand material worked in the Editor but was stripped
+    // on Android, where every masked-out texel then drew as opaque black. Referenced here because
+    // Level.prefab already ships this asset. Null = fall back to the level's sand material.
+    [Tooltip("URP Unlit material with Alpha Clipping enabled, used as the source for the shape cavity floor and sand-fill quads. Must stay alpha-clipped: the Android build only keeps the alpha-test shader variant because this material uses it.")]
+    [SerializeField] Material _shapeMaskMaterial;
+    public Material shapeMaskMaterial => _shapeMaskMaterial;
 }

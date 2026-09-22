@@ -198,11 +198,43 @@ before starting or resuming work under `Assets/Game/CurrentGame/`**, and update
 it when a stage lands. It complements `Docs/` (which holds specs, i.e. what the
 game *should* do) by recording the real state of the implementation.
 
-Short version as of 2026-09-15: the PNG-based sand pattern workflow is live
-(Faz 0 + Faz 1 complete), the palette carries 17 sand colours, and a 9-colour
-example pattern is at v2 (`SandSort_FaultScarp9_9x10.png`) with all 9 colours
-reachable from the extraction band. The sand simulation, extraction, capacity
-and container systems have not been modified and must not be — post-extraction
+Short version as of 2026-09-21: the PNG-based sand pattern workflow is live
+(Faz 0 + Faz 1 complete) and the palette carries 17 sand colours. **The sand
+simulation and the extraction were rebuilt from scratch on 2026-09-21 (the
+"sand-resolution reset") and that architecture is the accepted baseline** — see
+the top section of `TODO.md` before touching anything under
+`Assets/Game/CurrentGame/SandCylinderDemo/`. In short:
+
+- `SandCylinderSandGrid` is a colour-blind, hole-centric cellular automaton.
+  `SimulatePass` visits empty cells bottom-up; **`ChooseSource` is the only place
+  a movement rule may live** (policy v0 plus the accepted L3 rest friction,
+  `restFriction` 0.5). Sand enters, moves and leaves only through the `Place` /
+  `Move` / `Remove` primitives. It sleeps at rest.
+- Extraction is **mouth-only and contact-limited** (`ExtractAtMouth` /
+  `HasColorAtMouth`, contact overloads): only the grid columns whose centres lie
+  inside the container's drawn footprint (`[xa, xb)`) and inside the block being
+  processed, × the bottom `extractionMouthRows` (15) rows, matching colour only.
+  Near the footprint edges the top eligible row is trimmed at 45°:
+  `maxRow = 7 + min(edgeDistance, 7)` (7 = `extractionMouthRows / 2`), so the edge
+  column gives rows 0–7 and the full mouth starts 7 columns in; an edge lying on
+  the sand's outer wall trims nothing. Block candidates are **not** widened: a
+  block the container does not physically cover is never extracted from, and a
+  tiny overlap exposes only the covered columns. The old whole-block overloads
+  remain for the demo conveyor. There is no extraction band, reach beyond the
+  footprint, 45° wing outside it or colour-aware refill, and none may be
+  reintroduced. `ExtractColor`, `HasReachableColor`, `extractionRangeY`,
+  `StepCell` and the active-region sub-steps no longer exist.
+- Each grain carries a persistent visual tint that moves with it; physics never
+  reads it, and physics randomness comes only from the grid's own `physicsRng`.
+- Rejected after measurement, do not retry without being asked: L1 (wider lateral
+  reach) and L2 (drop-sensitive slide chance). No further wall-collapse redesign
+  is planned.
+- Known level-design issue, deliberately not fixed: the 9-colour pattern
+  `SandSort_FaultScarp9_9x10.png` (level `SandSort_Canyon9Colors_9x10_Level`) was
+  authored for the old extraction band and is not playable under mouth-only
+  colour extraction. The other five validated levels are physically playable.
+
+The capacity and container systems have not been modified. Post-extraction
 deformation is a core feature, so no shape-freezing system may be added.
 
 ## Game Design Reference

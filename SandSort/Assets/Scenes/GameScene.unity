@@ -6649,6 +6649,69 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 725183167}
   m_CullTransparentMesh: 1
+--- !u!1 &733054922
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 733054924}
+  - component: {fileID: 733054923}
+  m_Layer: 0
+  m_Name: ---SandLevelDesigner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &733054923
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 733054922}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efa5be523f1b74e9e831693fc6496a35, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SandLevelDesigner
+  _toggleKey: 283
+  _startActive: 0
+  _defaultColor: 161
+  _shapePool:
+  - {fileID: 7783153047589918952, guid: aa3af3961afe847dfabad95a44e1c78c, type: 3}
+  - {fileID: 9144006800819988532, guid: eb6d9aa4765fc4b28bc71792c42bed31, type: 3}
+  - {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
+  - {fileID: 1110001046970575419, guid: abec165eb2f8740bdac9a0d0a2af7a1e, type: 3}
+  - {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+  - {fileID: 6946165922638697856, guid: fdcc9d0da5c764e5e95f74a99b5a85d2, type: 3}
+  - {fileID: 4971453937965233258, guid: 19635dd25665241ceb3dc1763d2ce1d0, type: 3}
+  - {fileID: 4235498481140829280, guid: f7b72a06ccd5f44dd92ab63c53b006b0, type: 3}
+  - {fileID: 6936864354962184566, guid: 1dd68404236004dd2943457d09e29990, type: 3}
+  - {fileID: 5273368748599071861, guid: 9aa0b7d6e816c428c8ad33cab94d1af9, type: 3}
+  - {fileID: 4810164085584243201, guid: 83d1f4f4250994ac3bf78b9cb8cc7bc9, type: 3}
+  - {fileID: 3508780417519441240, guid: 0e20915d70bed43689370d3152a444cc, type: 3}
+  - {fileID: 7608668614613924003, guid: 555adf220a0c54e0894b20c1aad2ead8, type: 3}
+  _sandTexture: {fileID: 0}
+  _colorTolerance: 8
+--- !u!4 &733054924
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 733054922}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &745617148
 GameObject:
   m_ObjectHideFlags: 0
@@ -16808,3 +16871,4 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 363273900}
   - {fileID: 1057546974}
+  - {fileID: 733054924}

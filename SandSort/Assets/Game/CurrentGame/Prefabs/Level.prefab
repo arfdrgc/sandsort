@@ -110,12 +110,7 @@ MonoBehaviour:
   - {r: 1, g: 0.92156863, b: 0.23137255, a: 1}
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
-  maxCellsPerColumnPerTick: 6
-  extractionRangeY: 0.35
-  extractionDiagonalSpread: 1
-  extractionNeighborPrimeRadius: 1
-  extractionCaveInLeftBias: 0.5
-  extractionPrimeMaxEmptyGap: 3
+  extractionMouthRows: 15
   cubeVisualScale: 0.5
   conveyorWidth: 5
   conveyorHeight: 1.2
@@ -127,16 +122,9 @@ MonoBehaviour:
   particleLifetime: 1
   particleSpread: 0.15
   particleGravity: 1
-  sandSimulationSpeed: 45
-  maxFallCellsPerTick: 6
-  fallSidewaysMixChance: 0.1
-  lateralSpreadChance: 1
-  pileStability: 0.28
-  minGapForFreeCascade: 2
-  settleJitterChance: 0.015
-  settleJitterWindowTicks: 3
-  colorNoiseAmount: 0.2
-  activeSubStepsPerTick: 24
-  activeSubStepMargin: 24
-  activeSubStepWindowSeconds: 0.5
+  sandSimulationSpeed: 120
+  flowSpread: 0.5
+  slideChance: 0.6
+  restFriction: 0
   maxCellsPerFrame: 400000
+  colorNoiseAmount: 0.2

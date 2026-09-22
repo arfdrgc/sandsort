@@ -646,9 +646,30 @@ public class Level : MonoBehaviour, ILevel {
         }
     }
 
-    Material containerMaterialOf(ColorSO.ItemColor color) {
+    // Public only so SandLevelDesigner can draw its previews in the same colour as the real pieces.
+    public Material containerMaterialOf(ColorSO.ItemColor color) {
         foreach (ColorSO colorSO in _containerColors) {
             if (colorSO != null && colorSO.color == color) return colorSO.objectiveItemMaterial;
+        }
+        return null;
+    }
+
+    // Read-only views for SandLevelDesigner: the colours a level's sand can carry (slot order), and
+    // whether a colour has a ColorSO on this prefab at all — the designer only ever assigns, and
+    // only ever saves, colours for which this is true.
+    public IReadOnlyList<ColorSO.ItemColor> sandPaletteColors => _sandPaletteColors;
+    // The PNG -> slot palette the level loads its sand texture with; the designer's texture colour
+    // debugger matches against the same asset so it can only ever agree with the loader.
+    public SandPaletteSO sandPalette => _sandPalette;
+
+    public bool hasContainerColor(ColorSO.ItemColor color) => containerColorOf(color) != null;
+
+    // The ColorSO asset behind a gameplay colour, or null. Works on the prefab asset as well as on an
+    // instance (serialized data only), which is what lets the designer's Inspector analyse a texture
+    // before Play.
+    public ColorSO containerColorOf(ColorSO.ItemColor color) {
+        foreach (ColorSO colorSO in _containerColors) {
+            if (colorSO != null && colorSO.color == color) return colorSO;
         }
         return null;
     }

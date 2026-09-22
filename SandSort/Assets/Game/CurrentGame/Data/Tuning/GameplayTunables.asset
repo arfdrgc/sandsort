@@ -29,3 +29,4 @@ MonoBehaviour:
   _sandFillEdgeDarken: 0.233
   _sandFillColorNoiseAmount: 0.221
   _sandFillDepthAmount: 0
+  _shapeMaskMaterial: {fileID: 2100000, guid: 8c9e9e09dfe8c44839569e6796a4f8c2, type: 2}
