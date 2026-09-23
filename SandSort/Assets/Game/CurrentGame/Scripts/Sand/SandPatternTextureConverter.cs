@@ -126,12 +126,18 @@ public static class SandPatternTextureConverter {
     // than a stretched one. Identical in spirit to Level.fitSandAreaToBoard's existing maths — only
     // the source is measured in pixels here instead of whole blocks, which is strictly more precise
     // (no block quantisation on the way in).
+    //
+    // pictureRows is how many of the pattern's rows (from the bottom) actually sample the picture —
+    // the exact resampled height, e.g. 170x127 at 6 blocks -> 152 of 170. The pattern itself stays
+    // whole blocks; the caller sizes the sand grid to pictureRows so the EMPTY remainder above it
+    // never becomes part of the sand area.
     public static bool tryBuildPattern(
         Texture2D source, SandPaletteSO palette,
         int targetWidthBlocks, int blockCellSize, int maxHeightBlocks,
-        out SandCylinderPatternData pattern, out string error) {
+        out SandCylinderPatternData pattern, out int pictureRows, out string error) {
 
         pattern = null;
+        pictureRows = 0;
         if (!tryReadSlots(source, palette, out byte[] slots, out int srcWidth, out int srcHeight, out error)) return false;
 
         blockCellSize = Mathf.Max(1, blockCellSize);
@@ -141,7 +147,11 @@ public static class SandPatternTextureConverter {
         int destWidth = targetWidthBlocks * blockCellSize;
         float cellsPerSourcePixel = destWidth / (float)srcWidth;
 
-        int targetHeightBlocks = Mathf.Max(1, Mathf.RoundToInt(srcHeight * cellsPerSourcePixel / blockCellSize));
+        // Rounded UP, never to nearest: rounding down (170x127 at 6 blocks: 4.48 -> 4) made the paint
+        // loop below stop short and silently dropped the picture's top 14 rows. Ceil keeps every source
+        // row and leaves the remainder EMPTY at the top. One division of two exact integers, so a
+        // picture that already fits a whole number of blocks lands exactly on it, not one block over.
+        int targetHeightBlocks = Mathf.Max(1, Mathf.CeilToInt(srcHeight * destWidth / (float)(srcWidth * blockCellSize)));
         if (targetHeightBlocks > maxHeightBlocks) {
             Debug.LogWarning($"[SandPatternTextureConverter] '{source.name}' ({srcWidth}x{srcHeight}) at {targetWidthBlocks} blocks wide would need {targetHeightBlocks} blocks of sand height, past the {maxHeightBlocks}-block cap cylinderHeight's own Inspector range allows — clamped. The sand area is no longer a uniform scale of the picture.");
             targetHeightBlocks = maxHeightBlocks;
@@ -168,6 +178,7 @@ public static class SandPatternTextureConverter {
             // bottom, where the extraction band reads.
             if (sourceY >= srcHeight) continue;
             sourceY = Mathf.Max(0, sourceY);
+            pictureRows = y + 1;
 
             for (int x = 0; x < paintWidth; x++) {
                 int sourceX = Mathf.Clamp(Mathf.FloorToInt((x + 0.5f) / cellsPerSourcePixel), 0, srcWidth - 1);

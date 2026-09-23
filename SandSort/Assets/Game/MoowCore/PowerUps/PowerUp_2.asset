@@ -13,8 +13,8 @@ MonoBehaviour:
   m_Name: PowerUp_2
   m_EditorClassIdentifier: 
   _itemID: PUT_2
-  _sprite: {fileID: 21300000, guid: bfc23352a3a4f4d8194886ac7794a6aa, type: 3}
-  _spriteLocked: {fileID: 21300000, guid: bfc23352a3a4f4d8194886ac7794a6aa, type: 3}
+  _sprite: {fileID: 21300000, guid: 83d632088f3154065b5c49ac435bdc90, type: 3}
+  _spriteLocked: {fileID: 21300000, guid: c0ab29c5542a04a2e84d1e57e4da2faf, type: 3}
   _goldCost: 1000
   _unlockLevel: 11
   _type: 1

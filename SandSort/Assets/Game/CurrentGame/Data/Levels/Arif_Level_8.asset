@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6796e98d92a764eabb2a3412fd254322, type: 3}
-  m_Name: SandSort_Toucan7_9x10_Level
+  m_Name: Arif_Level_8
   m_EditorClassIdentifier: Assembly-CSharp::SandLevelSO
   _levelPrefab: {fileID: 3500330111660482340, guid: 6cadf0c9289244df8da0cd252d847e23, type: 3}
   _difficulty: 0
@@ -18,50 +18,56 @@ MonoBehaviour:
   _expandBottom: 0
   _centerFactor: 0
   _colorPalette: {fileID: 0}
-  _boardSize: {x: 7, y: 9}
+  _boardSize: {x: 6, y: 6}
   _containers:
-  - position: {x: 2, y: 2}
+  - position: {x: 0, y: 3}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 3
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 141
-  - position: {x: 6, y: 2}
+    color: 122
+  - position: {x: 3, y: 2}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 1
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 181
-  - position: {x: 5, y: 2}
+    color: 132
+  - position: {x: 0, y: 0}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 1
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 171
-  - position: {x: 4, y: 2}
+    color: 161
+  - position: {x: 3, y: 1}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 1
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 103
-  - position: {x: 3, y: 2}
+  - position: {x: 0, y: 1}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 1
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 113
+    color: 141
   - position: {x: 0, y: 2}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 1
+    rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 121
-  - position: {x: 1, y: 2}
+    color: 181
+  - position: {x: 3, y: 0}
     shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
-    rotation: 3
+    rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 101
-  _sandTexture: {fileID: 2800000, guid: 9fe01f6d0d544eaba04288745ec1af2e, type: 3}
+  - position: {x: 3, y: 3}
+    shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 171
+  _sandTexture: {fileID: 2800000, guid: e9289417f7a2e491a834a22c645fe33b, type: 3}
   _sandPattern: {fileID: 0}
   _timerSeconds: 300

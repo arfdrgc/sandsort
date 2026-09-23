@@ -280,6 +280,7 @@ public class ExtractionGrid : MonoBehaviour {
         // One slot per active extraction point — see the THROUGHPUT note.
         int slots = gatherOverlappingColumns();
         if (slots <= 0) return;
+        s_engagedFrame = Time.frameCount;
 
         sortCandidatesByOverlap();
 
@@ -301,6 +302,7 @@ public class ExtractionGrid : MonoBehaviour {
             float contactMinX = _board.anchorPointToWorldCenter(new Vector2(_contactLow[owner], _board.topRow), _container.shape).x;
             float contactMaxX = _board.anchorPointToWorldCenter(new Vector2(_contactHigh[owner], _board.topRow), _container.shape).x;
 
+            float accumulatorBefore = _extractionAccumulators[column];
             int removed = _sandExtraction.ExtractAtPoint(
                 point,
                 contactMinX,
@@ -311,6 +313,10 @@ public class ExtractionGrid : MonoBehaviour {
                 ref _extractionAccumulators[column],
                 ref _grainSpawnAccumulators[column]);
 
+            // The accumulator only moves once the whole eligibility chain has passed (matching sand in
+            // the contact mouth), so it marks a live drain even on a frame whose budget rounds to 0.
+            if (removed > 0 || _extractionAccumulators[column] != accumulatorBefore) reportExtraction(removed);
+
             // Nothing of this color reachable in that block: no accumulator was touched, so the slot
             // is still free for the next overlapping block.
             if (removed <= 0) continue;
@@ -319,6 +325,169 @@ public class ExtractionGrid : MonoBehaviour {
             spawnGrains(column, removed);
             used++;
         }
+    }
+
+    // -- Extraction sound ---------------------------------------------------------------------
+    // One continuous looping SAND_1 for the whole board, not one per shape. BasicAudioSO keeps its
+    // AudioSource in a field on the shared asset, so a second PlaySFX on the same SO would overwrite
+    // it and leak the first source — with several shapes draining at once there can only be one.
+    // _SAND_1 has _loop set, so AudioManager's pool never reclaims it (its Update only reclaims
+    // sources that stopped on their own) and it runs until StopSFX, however long extraction lasts.
+    // Its clip is sand_sound_loop_seamless.wav, not the original mp3: the mp3 decodes with 8 ms of
+    // encoder padding at the head and 47 ms at the tail, which a looping source plays as a dropout
+    // every 2.85 s. The wav is the same audio with the padding trimmed and a 150 ms equal-power
+    // crossfade of the tail into the head, so the loop point has no gap and no level jump.
+    //
+    // START / STOP follows the per-frame drain state. The loop starts on the first frame any shape
+    // passes the extraction chain; LateUpdate settles it once all grids have run:
+    // - some shape drained this frame: keep playing;
+    // - no shape is in extraction position (moved off the top row, full, sealed, input locked):
+    //   extraction is over — fade out over SFX_FADE_OUT and stop;
+    // - a shape is in position but its contact mouth had no matching sand this frame: the mouth is
+    //   refilling from above, or the colour has run out, and one frame cannot tell them apart. The
+    //   loop keeps running (its volume sinks with the flow, below) and only fades out once the mouth
+    //   has stayed dry for SFX_DRY_BRIDGE and SFX_DRY_BRIDGE_FRAMES frames. Measured 2026-09-23
+    //   (Level.prefab, 1600 cells/s): a steady drain leaves 1-2 frame gaps, growing to 130-200 ms
+    //   in the thin tail of a drain; the bridge sits above all of them so the loop never
+    //   stops/restarts mid-extraction, and the frame minimum keeps one hitch frame from ending it.
+    // A drain that resumes during the fade just cancels it — the source never stopped.
+    //
+    // VOLUME follows the flow. The cells removed each frame, summed over every grid, become a rate
+    // (cells/s) smoothed over SFX_FLOW_SMOOTHING, which rides out the refill bursts. That rate maps
+    // between SFX_FLOW_LIGHT and SFX_FLOW_HEAVY onto a gain between SFX_LIGHT_GAIN and 1, the gain
+    // eases toward it over SFX_GAIN_SMOOTHING, and the source plays at gain x the volume _SAND_1 set
+    // on it at start — so the asset's volume stays the heavy-flow maximum and is tuned there.
+    const float SFX_DRY_BRIDGE = 0.3f;
+    const int SFX_DRY_BRIDGE_FRAMES = 2;
+    const float SFX_FADE_OUT = 0.08f;
+    const float SFX_FLOW_SMOOTHING = 0.2f;
+    const float SFX_GAIN_SMOOTHING = 0.12f;
+    const float SFX_FLOW_LIGHT = 150f;
+    const float SFX_FLOW_HEAVY = 900f;
+    const float SFX_LIGHT_GAIN = 0.35f;
+
+    static float s_lastDrainTime;
+    static int s_drainFrame;
+    static int s_engagedFrame;
+    static int s_frameCells;
+    static bool s_sfxPlaying;
+    static bool s_sfxFading;
+    static AudioSource s_sfxSource;
+    static float s_sfxMaxVolume;
+    static float s_flowRate;
+    static float s_gain;
+    static int s_sfxOwnerFrame;
+    static int s_liveGrids;
+
+    // Statics survive "Enter Play Mode without domain reload", so they are reset per play session
+    // rather than relying on their initializers.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void resetExtractionSfx() {
+        s_lastDrainTime = float.NegativeInfinity;
+        s_drainFrame = -1;
+        s_engagedFrame = -1;
+        s_frameCells = 0;
+        s_sfxPlaying = false;
+        s_sfxFading = false;
+        s_sfxSource = null;
+        s_sfxMaxVolume = 0f;
+        s_flowRate = 0f;
+        s_gain = 0f;
+        s_sfxOwnerFrame = -1;
+        s_liveGrids = 0;
+    }
+
+    static void reportExtraction(int removed) {
+        s_lastDrainTime = Time.time;
+        s_drainFrame = Time.frameCount;
+        s_frameCells += removed;
+        s_sfxFading = false;
+        if (s_sfxPlaying) return;
+
+        AudioPlayer.PlaySFX(AudioFX.SAND_1, false, true);
+        Moow.Audio.AudioSO so = AudioPlayer.BringAuidoSO(AudioFX.SAND_1);
+        s_sfxSource = so != null ? so.source : null;
+        s_sfxMaxVolume = s_sfxSource != null ? s_sfxSource.volume : 0f;
+        // A fresh loop enters at the light level and eases up, so it never starts on a click; the
+        // flow is seeded from its first frame (negative = unseeded) so the ease heads straight for
+        // the real level instead of climbing out of zero.
+        s_flowRate = -1f;
+        s_gain = SFX_LIGHT_GAIN;
+        applySfxVolume();
+        s_sfxPlaying = true;
+    }
+
+    static void stopExtractionSfx() {
+        s_sfxFading = false;
+        if (!s_sfxPlaying) return;
+        // Hand the source back at the volume _SAND_1 gave it; after StopSFX it belongs to the pool.
+        if (s_sfxSource != null) s_sfxSource.volume = s_sfxMaxVolume;
+        AudioPlayer.StopSFX(AudioFX.SAND_1);
+        s_sfxSource = null;
+        s_sfxPlaying = false;
+    }
+
+    static void applySfxVolume() {
+        if (s_sfxSource != null) s_sfxSource.volume = s_sfxMaxVolume * s_gain;
+    }
+
+    void OnEnable() {
+        s_liveGrids++;
+    }
+
+    // Last shape gone (level teardown, restart) stops the loop at once — nothing would be left to
+    // run the LateUpdate that fades it.
+    void OnDisable() {
+        s_liveGrids--;
+        if (s_liveGrids <= 0) stopExtractionSfx();
+    }
+
+    // Every grid has this, and every Update has run by now, so the first one to run each frame
+    // settles the loop for all of them.
+    void LateUpdate() {
+        if (s_sfxOwnerFrame == Time.frameCount) return;
+        s_sfxOwnerFrame = Time.frameCount;
+
+        int frameCells = s_frameCells;
+        s_frameCells = 0;
+        if (!s_sfxPlaying) return;
+
+        // Something outside this loop (StopAllSFX, sound switched off) took the source away: forget
+        // it, so the next drain starts a fresh loop instead of believing one is still running.
+        Moow.Audio.AudioSO so = AudioPlayer.BringAuidoSO(AudioFX.SAND_1);
+        if (s_sfxSource == null || so == null || so.source != s_sfxSource || !s_sfxSource.isPlaying) {
+            s_sfxSource = null;
+            s_sfxPlaying = false;
+            s_sfxFading = false;
+            return;
+        }
+
+        float dt = Time.deltaTime;
+        if (dt <= 0f) return;
+
+        bool drained = s_drainFrame == Time.frameCount;
+        if (!drained && !s_sfxFading) {
+            bool engaged = s_engagedFrame == Time.frameCount;
+            bool dryTooLong = Time.time - s_lastDrainTime > SFX_DRY_BRIDGE && Time.frameCount - s_drainFrame >= SFX_DRY_BRIDGE_FRAMES;
+            if (!engaged || dryTooLong) s_sfxFading = true;
+        }
+
+        if (s_sfxFading) {
+            s_gain -= dt / SFX_FADE_OUT;
+            if (s_gain <= 0f) {
+                s_gain = 0f;
+                stopExtractionSfx();
+                return;
+            }
+        } else {
+            float frameRate = frameCells / dt;
+            if (s_flowRate < 0f) s_flowRate = frameRate;
+            else s_flowRate += (frameRate - s_flowRate) * (1f - Mathf.Exp(-dt / SFX_FLOW_SMOOTHING));
+            float intensity = Mathf.InverseLerp(SFX_FLOW_LIGHT, SFX_FLOW_HEAVY, s_flowRate);
+            float targetGain = Mathf.Lerp(SFX_LIGHT_GAIN, 1f, intensity);
+            s_gain += (targetGain - s_gain) * (1f - Mathf.Exp(-dt / SFX_GAIN_SMOOTHING));
+        }
+        applySfxVolume();
     }
 
     // GRAINS (2026-09-22): the falling sand is drawn from the extraction itself, not aimed at the shape.

@@ -297,7 +297,7 @@ public class Container : MonoBehaviour {
     // normally, so the visual still settles onto its committed cell.
     public void setInputLocked(bool locked) {
         _inputLocked = locked;
-        if (locked && _dragging) endDrag();
+        if (locked && _dragging) endDrag(false);
     }
 
     void Update() {
@@ -343,6 +343,7 @@ public class Container : MonoBehaviour {
         _grabOffset = _board.worldToAnchorPoint(pointerWorld, _shape) - _visualAnchor;
         setSelectedOutline(true);
         setSelectedRenderLayer(true);
+        AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
     }
 
     void dragTo(Vector3 pointerWorld) {
@@ -364,11 +365,14 @@ public class Container : MonoBehaviour {
     }
 
     // The grid position is already the committed, valid cell nearest the visual — the visual just
-    // settles onto it (updateVisual).
-    void endDrag() {
+    // settles onto it (updateVisual). playDropSfx is false when the release was forced by an input
+    // lock (win/lose) rather than by the player letting go, so no drop sound fires over the
+    // win/lose stinger.
+    void endDrag(bool playDropSfx = true) {
         _dragging = false;
         setSelectedOutline(false);
         setSelectedRenderLayer(false);
+        if (playDropSfx) AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
     }
 
     // Keeps the authoritative grid position on the cell nearest the visual, updating Board
@@ -633,7 +637,11 @@ public class Container : MonoBehaviour {
             .SetLink(gameObject);
     }
 
+    // Runs once per Container, as the complete exit's OnComplete: seal() is guarded by _sealed, so
+    // the exit (and this SFX) cannot restart while the shape sits at 100%.
     void playCompleteEffect(Bounds shapeBounds) {
+        AudioPlayer.PlaySFX(AudioFX.ITEM_COMPLETE_2);
+
         GameObject prefab = _tuning != null ? _tuning.completeEffectPrefab : null;
         if (prefab == null) {
             _completeExitFinished = true;

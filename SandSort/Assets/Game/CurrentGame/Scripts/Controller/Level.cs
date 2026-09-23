@@ -264,14 +264,17 @@ public class Level : MonoBehaviour, ILevel {
         if (!SandPatternTextureConverter.tryBuildPattern(
                 sandLevel.sandTexture, _sandPalette, targetWidth,
                 _sandTunables.blockCellSize, maxSandHeightBlocks,
-                out SandCylinderPatternData built, out string error)) {
+                out SandCylinderPatternData built, out int pictureRows, out string error)) {
             Debug.LogError($"[Level::tryFitSandAreaFromTexture] {error} Falling back to the level's sand pattern.");
             return false;
         }
 
         _runtimePattern = built;
         _sandTunables.customPattern = built;
-        _sandTunables.cylinderHeight = built.height * _sandTunables.CubeWorldSize;
+        // The picture's exact resampled height, not the pattern's whole-block height: GridHeight then
+        // ends where the picture does (170x127 -> 152 rows, not 170), so no EMPTY band sits above it.
+        // Only the grid's size changes — sandDensity, and so every per-cell rate, is untouched.
+        _sandTunables.cylinderHeight = pictureRows / Mathf.Max(1f, _sandTunables.sandDensity);
         return true;
     }
 

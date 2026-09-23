@@ -110,7 +110,7 @@ MonoBehaviour:
   - {r: 1, g: 0.92156863, b: 0.23137255, a: 1}
   sandExtractionRate: 1600
   maximumSandFlowRate: 400
-  extractionMouthRows: 15
+  extractionMouthRows: 20
   cubeVisualScale: 0.5
   conveyorWidth: 5
   conveyorHeight: 1.2

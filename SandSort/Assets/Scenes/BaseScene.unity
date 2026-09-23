@@ -1010,7 +1010,7 @@ MonoBehaviour:
   - soundFX: 1113
     audio: {fileID: 11400000, guid: d7c60260f090b46d5b8be53e98442f2a, type: 2}
   - soundFX: 1114
-    audio: {fileID: 0}
+    audio: {fileID: 11400000, guid: a368443fae65c41d68b2cdd166eedd9d, type: 2}
   - soundFX: 2001
     audio: {fileID: 0}
   - soundFX: 2002
@@ -1031,6 +1031,8 @@ MonoBehaviour:
     audio: {fileID: 11400000, guid: 5e9da59403507415e8ecb45b7d3ea9ec, type: 2}
   - soundFX: 2011
     audio: {fileID: 11400000, guid: fbe7f976e9fff4ceba7ee3f385b09b78, type: 2}
+  - soundFX: 2012
+    audio: {fileID: 11400000, guid: fb70c460287a94a26918a64267d359be, type: 2}
 --- !u!114 &849849185
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -300,7 +300,11 @@ public class SandCylinderSandGrid : MonoBehaviour {
 
         SandCylinderPatternData pattern = tunables.customPattern;
         if (pattern != null) {
-            PaintFromPattern(pattern, blockSize, blockGridWidth, blockGridHeight, colorCount);
+            // Rounded UP for a pattern: a grid sized to a picture's exact height can end mid-block,
+            // and PaintFromPattern already clips that partial top block to `height`. The random
+            // generator below keeps the floored blockGridHeight.
+            int patternBlockGridHeight = Mathf.Max(1, Mathf.Min(tunables.EffectiveBlockGridHeight, (height + blockSize - 1) / blockSize));
+            PaintFromPattern(pattern, blockSize, blockGridWidth, patternBlockGridHeight, colorCount);
         } else {
             int[,] pieceIdGrid = BuildPieceIdGrid(blockGridWidth, blockGridHeight, out List<List<Vector2Int>> pieces);
             int[] pieceColors = ColorPieces(pieceIdGrid, pieces, blockGridWidth, blockGridHeight, colorCount);
