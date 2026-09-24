@@ -34,6 +34,8 @@ public class GameplayTunables : ScriptableObject {
     public const float DEFAULT_SAND_FILL_EDGE_DARKEN = 0.10f;
     public const float DEFAULT_SAND_FILL_COLOR_NOISE_AMOUNT = 0.20f;
     public const float DEFAULT_SAND_FILL_DEPTH_AMOUNT = 0.14f;
+    public const float DEFAULT_FREEZE_TIME_SECONDS = 10f;
+    public const float DEFAULT_FREEZE_TIME_ACTIVATION_SECONDS = 1.8f;
     [Header("Drag")]
     [Tooltip("How hard the shape is pulled toward the pointer, per second. The visual catches up exponentially, so this is really a time constant: 1/sharpness is roughly the lag (30 => ~33 ms). Higher feels locked to the finger, lower feels heavy and smooths out a shaky pointer.")]
     [Range(5f, 60f)]
@@ -112,6 +114,16 @@ public class GameplayTunables : ScriptableObject {
     [Range(0f, 0.4f)]
     [SerializeField] float _sandFillDepthAmount = DEFAULT_SAND_FILL_DEPTH_AMOUNT;
     public float sandFillDepthAmount => _sandFillDepthAmount;
+
+    [Header("Booster: Freeze Time")]
+    [Tooltip("How long Freeze Time holds the level timer, in seconds, counted from the moment the booster becomes active (after the activation). Counts on the level timer's own clock and stands still while Settings is open. Read by PowerUp_1 when a freeze becomes active.")]
+    [Range(1f, 60f)]
+    [SerializeField] float _freezeTimeSeconds = DEFAULT_FREEZE_TIME_SECONDS;
+    [Tooltip("Time from the tap until Freeze Time becomes active (and is consumed), in seconds. The level timer is already stopped during it. It is the activation animation's slot (the reference's icon flight to the timer takes ~1.8 s); with no animation yet it is only a wait. Read by PowerUp_1 on the tap.")]
+    [Range(0f, 5f)]
+    [SerializeField] float _freezeTimeActivationSeconds = DEFAULT_FREEZE_TIME_ACTIVATION_SECONDS;
+    public float freezeTimeSeconds => _freezeTimeSeconds;
+    public float freezeTimeActivationSeconds => _freezeTimeActivationSeconds;
 
     // The source material for the masked Shape quads (ShapeCavityFloor, ShapeSandFill). It must be a
     // URP Unlit material AUTHORED with alpha clipping on (_ALPHATEST_ON): _ALPHATEST_ON is a

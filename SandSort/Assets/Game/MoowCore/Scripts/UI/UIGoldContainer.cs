@@ -20,6 +20,12 @@ public class UIGoldContainer : MonoBehaviour {
     float _pendingAnimated;
 
     private void Start() {
+        // Coins switched off game-wide (GameDataSO.coinsEnabled): no gold counter at all.
+        if (!GameDataManager.instance.coinsEnabled) {
+            gameObject.SetActive(false);
+            return;
+        }
+
         _currentValue = InventoryManager.instance.money;
         updateText();
 

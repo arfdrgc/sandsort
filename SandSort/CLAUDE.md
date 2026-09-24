@@ -210,6 +210,14 @@ the top section of `TODO.md` before touching anything under
   a movement rule may live** (policy v0 plus the accepted L3 rest friction,
   `restFriction` 0.5). Sand enters, moves and leaves only through the `Place` /
   `Move` / `Remove` primitives. It sleeps at rest.
+- **Edge collapse (accepted 2026-09-24): `edgeCollapse = 1` is the accepted
+  setting** (`SandCylinderTunables`, used only in `ChooseSource`). It makes sand
+  at drained edges collapse inward sooner instead of leaving a steep wall. It does
+  not change the final resting slope; it only improves how the sand collapses
+  during drainage. A runtime A/B (0 vs 1) confirmed Level 1 remains fully
+  completable and that it does not meaningfully increase cross-colour sand burial.
+  It is part of the accepted sand behaviour and must not be reverted (or set to 0)
+  without explicit approval.
 - Extraction is **mouth-only and contact-limited** (`ExtractAtMouth` /
   `HasColorAtMouth`, contact overloads): only the grid columns whose centres lie
   inside the container's drawn footprint (`[xa, xb)`) and inside the block being

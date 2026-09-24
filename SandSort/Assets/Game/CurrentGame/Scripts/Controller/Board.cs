@@ -30,6 +30,9 @@ public class Board : MonoBehaviour {
     // rectangular arrays, so a 2D array silently resets to null on a domain reload triggered
     // mid-Play (e.g. a script recompile), even though this field is never meant to be inspector-visible.
     Container[] _occupancy;
+    // Cells held by a fixed Grid Block (see GridBlock). Same flat layout as _occupancy, kept apart
+    // from it because a Grid Block is not a Container and is never freed.
+    bool[] _blocked;
 
     public Vector2Int size => _size;
     public float cellSize => _cellSize;
@@ -38,12 +41,35 @@ public class Board : MonoBehaviour {
     // Floor look (mockup reference): dark rounded tiles separated by thin gaps, so every cell reads
     // on its own. Painted into ONE texture on ONE quad — no per-cell GameObjects — and purely
     // visual: occupancy and grid math never look at it.
-    const int FLOOR_PIXELS_PER_CELL = 64;
-    const float FLOOR_CELL_GAP = 0.05f;          // per side, as a fraction of a cell
-    const float FLOOR_CELL_CORNER_RADIUS = 0.14f; // as a fraction of a cell
+    const int FLOOR_PIXELS_PER_CELL = 96;
+    const float FLOOR_CELL_GAP = 0.035f;          // per side, as a fraction of a cell
+    const float FLOOR_CELL_CORNER_RADIUS = 0.12f; // as a fraction of a cell
     static readonly Color32 FLOOR_CELL_TOP_COLOR = new Color32(54, 60, 108, 255);
     static readonly Color32 FLOOR_CELL_BOTTOM_COLOR = new Color32(36, 40, 80, 255);
     static readonly Color32 FLOOR_GAP_COLOR = new Color32(18, 20, 44, 255);
+    // Checkerboard: every other cell ((x + y) odd) is lifted this far toward white, so equal tones
+    // never touch horizontally or vertically.
+    const float FLOOR_CHECKER_LIGHTEN = 0.11f;
+
+    // Raised-tile shading (reference: soft rounded slabs lit from the top-left). All widths are in
+    // cell units measured inward from the tile edge.
+    static readonly Vector2 FLOOR_LIGHT_DIRECTION = new Vector2(-1f, 1f).normalized; // top-left, texture v is up
+    const float FLOOR_EDGE_SOFTEN_WIDTH = 0.022f; // soft dark falloff into the gap, all around
+    const float FLOOR_EDGE_SOFTEN = 0.28f;
+    // Bright arc just inside the top/left edge, strongest at the top-left corner.
+    const float FLOOR_HIGHLIGHT_START = 0.006f;
+    const float FLOOR_HIGHLIGHT_END = 0.05f;
+    const float FLOOR_HIGHLIGHT = 0.52f;          // max lerp toward white
+    // Darker side band along the bottom/right edge — the slab's visible side.
+    const float FLOOR_SHADE_WIDTH = 0.075f;
+    const float FLOOR_SHADE = 0.48f;              // max darkening
+    // Flat face: an inner rounded rect this far in from the tile edge, sitting a touch lower than
+    // the rim around it, with a faint lip where the two meet.
+    const float FLOOR_FACE_INSET = 0.1f;
+    const float FLOOR_FACE_CORNER_RADIUS = 0.07f;
+    const float FLOOR_FACE_RECESS = 0.05f;        // face darkening relative to the rim
+    const float FLOOR_FACE_LIP_WIDTH = 0.018f;
+    const float FLOOR_FACE_LIP = 0.1f;
 
     Texture2D _floorTexture;
     Material _floorMaterial;
@@ -60,6 +86,7 @@ public class Board : MonoBehaviour {
         _size = size;
         _cellSize = cellSize;
         _occupancy = new Container[size.x * size.y];
+        _blocked = new bool[size.x * size.y];
 
         buildFloorVisual(size, floorBaseMaterial);
     }
@@ -95,17 +122,25 @@ public class Board : MonoBehaviour {
         int pixelsPerCell = FLOOR_PIXELS_PER_CELL;
         int width = size.x * pixelsPerCell;
         int height = size.y * pixelsPerCell;
-        float antiAliasBand = 1.5f / pixelsPerCell;
+        float antiAliasBand = 2f / pixelsPerCell;
 
         Color32[] pixels = new Color32[width * height];
         for (int y = 0; y < height; y++) {
+            int cellY = y / pixelsPerCell;
             float v = (y % pixelsPerCell + 0.5f) / pixelsPerCell;
-            Color32 tileColor = Color32.Lerp(FLOOR_CELL_BOTTOM_COLOR, FLOOR_CELL_TOP_COLOR, v);
+            Color baseTileColor = Color.Lerp(FLOOR_CELL_BOTTOM_COLOR, FLOOR_CELL_TOP_COLOR, v);
 
             for (int x = 0; x < width; x++) {
+                int cellX = x / pixelsPerCell;
                 float u = (x % pixelsPerCell + 0.5f) / pixelsPerCell;
-                float coverage = Mathf.Clamp01(0.5f - roundedTileDistance(u, v) / antiAliasBand);
-                pixels[y * width + x] = Color32.Lerp(FLOOR_GAP_COLOR, tileColor, coverage);
+                float distance = roundedTileDistance(u, v);
+
+                Color tileColor = baseTileColor;
+                if (((cellX + cellY) & 1) == 1) tileColor = Color.Lerp(tileColor, Color.white, FLOOR_CHECKER_LIGHTEN);
+                tileColor = shadeRaisedTile(tileColor, u, v, -distance);
+
+                float coverage = Mathf.Clamp01(0.5f - distance / antiAliasBand);
+                pixels[y * width + x] = Color.Lerp(FLOOR_GAP_COLOR, tileColor, coverage);
             }
         }
 
@@ -117,15 +152,66 @@ public class Board : MonoBehaviour {
         return texture;
     }
 
+    // Lights one tile pixel as a soft raised slab from the top-left. `depth` is how far (cell units)
+    // the pixel lies inside the tile edge; negative in the gap, where only the anti-aliased rim of
+    // this colour is ever seen.
+    static Color shadeRaisedTile(Color color, float u, float v, float depth) {
+        float facing = Vector2.Dot(roundedRectNormal(u, v, FLOOR_CELL_GAP, FLOOR_CELL_CORNER_RADIUS), FLOOR_LIGHT_DIRECTION);
+
+        // Soft dark falloff toward the gap, all around.
+        color *= 1f - FLOOR_EDGE_SOFTEN * (1f - Mathf.SmoothStep(0f, 1f, depth / FLOOR_EDGE_SOFTEN_WIDTH));
+
+        // Top/left highlight: a band just inside the edge; squaring `facing` narrows it into an arc
+        // that peaks at the top-left corner and fades along both edges.
+        if (facing > 0f) {
+            float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(FLOOR_HIGHLIGHT_START, FLOOR_HIGHLIGHT_START * 3f, depth))
+                       * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(FLOOR_HIGHLIGHT_END * 0.5f, FLOOR_HIGHLIGHT_END, depth)));
+            color = Color.Lerp(color, Color.white, FLOOR_HIGHLIGHT * facing * facing * band);
+        }
+        // Bottom/right side band: solid for most of its width, then a soft fade into the rim.
+        else {
+            float band = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(FLOOR_SHADE_WIDTH * 0.55f, FLOOR_SHADE_WIDTH, depth));
+            color *= 1f - FLOOR_SHADE * -facing * band;
+        }
+
+        // Flat, slightly recessed face with a faint lip: shaded on its top/left (the rim casts onto
+        // it), caught by the light on its bottom/right — the reverse of the outer edge.
+        float faceDistance = roundedRectDistance(u, v, FLOOR_CELL_GAP + FLOOR_FACE_INSET, FLOOR_FACE_CORNER_RADIUS);
+        color *= 1f - FLOOR_FACE_RECESS * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.006f, -0.006f, faceDistance));
+        float lip = 1f - Mathf.Clamp01(Mathf.Abs(faceDistance) / FLOOR_FACE_LIP_WIDTH);
+        if (lip > 0f) {
+            float faceFacing = Vector2.Dot(roundedRectNormal(u, v, FLOOR_CELL_GAP + FLOOR_FACE_INSET, FLOOR_FACE_CORNER_RADIUS), FLOOR_LIGHT_DIRECTION);
+            lip *= lip;
+            if (faceFacing > 0f) color *= 1f - FLOOR_FACE_LIP * faceFacing * lip;
+            else color = Color.Lerp(color, Color.white, FLOOR_FACE_LIP * 0.5f * -faceFacing * lip);
+        }
+
+        color.a = 1f;
+        return color;
+    }
+
     // Signed distance, in cell units, from (u, v) inside one cell to the edge of that cell's
     // rounded tile: negative inside the tile, positive in the gap around it.
     static float roundedTileDistance(float u, float v) {
-        float innerHalfExtent = 0.5f - FLOOR_CELL_GAP - FLOOR_CELL_CORNER_RADIUS;
+        return roundedRectDistance(u, v, FLOOR_CELL_GAP, FLOOR_CELL_CORNER_RADIUS);
+    }
+
+    // Signed distance to a rounded rect centred in the cell, `inset` in from each cell side.
+    static float roundedRectDistance(float u, float v, float inset, float cornerRadius) {
+        float innerHalfExtent = 0.5f - inset - cornerRadius;
         float qx = Mathf.Abs(u - 0.5f) - innerHalfExtent;
         float qy = Mathf.Abs(v - 0.5f) - innerHalfExtent;
         float outside = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude;
         float inside = Mathf.Min(Mathf.Max(qx, qy), 0f);
-        return outside + inside - FLOOR_CELL_CORNER_RADIUS;
+        return outside + inside - cornerRadius;
+    }
+
+    // Outward unit normal of that rounded rect's edge nearest (u, v) — the distance field's gradient.
+    static Vector2 roundedRectNormal(float u, float v, float inset, float cornerRadius) {
+        const float step = 0.004f;
+        return new Vector2(
+            roundedRectDistance(u + step, v, inset, cornerRadius) - roundedRectDistance(u - step, v, inset, cornerRadius),
+            roundedRectDistance(u, v + step, inset, cornerRadius) - roundedRectDistance(u, v - step, inset, cornerRadius)).normalized;
     }
 
     int cellIndex(int x, int y) => x + y * _size.x;
@@ -180,10 +266,23 @@ public class Board : MonoBehaviour {
 
         foreach (Vector2Int offset in shape) {
             Vector2Int cell = anchor + offset;
+            if (_blocked[cellIndex(cell.x, cell.y)]) return false;
             Container occupant = _occupancy[cellIndex(cell.x, cell.y)];
             if (occupant != null && occupant != ignore) return false;
         }
         return true;
+    }
+
+    // True when a fixed Grid Block sits on `cell`. False for an out-of-bounds cell.
+    public bool isBlocked(Vector2Int cell) {
+        if (cell.x < 0 || cell.y < 0 || cell.x >= _size.x || cell.y >= _size.y) return false;
+        return _blocked[cellIndex(cell.x, cell.y)];
+    }
+
+    // Marks `cell` as a fixed obstacle for the rest of the level. Only GridBlock.initialize calls it.
+    public void block(Vector2Int cell) {
+        if (cell.x < 0 || cell.y < 0 || cell.x >= _size.x || cell.y >= _size.y) return;
+        _blocked[cellIndex(cell.x, cell.y)] = true;
     }
 
     // The Container occupying `cell`, or null for an empty or out-of-bounds cell.

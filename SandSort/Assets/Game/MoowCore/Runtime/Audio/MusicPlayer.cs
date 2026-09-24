@@ -22,6 +22,9 @@ namespace MoowCore
         // Private Fields
         //
         private bool _isMusicActive;
+        // True only while the source holds a mid-track position from pauseMusic(); innerPlay/continueMusic
+        // then UnPause instead of restarting the clip from 0.
+        private bool _isPaused;
 
         private MusicFX _currentMusicFX;
         private Dictionary<MusicFX, MusicData> _cached;
@@ -39,11 +42,15 @@ namespace MoowCore
         private void OnEnable()
         {
             this.addListener<bool>(Events.SETTINGS_MUSIC_STATE_CHANED, onMusicStateChaned);
+            this.addListener<object>(Events.LEVEL_LOADED, onLevelLoaded);
+            this.addListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
         }
 
         private void OnDisable()
         {
             this.removeListener<bool>(Events.SETTINGS_MUSIC_STATE_CHANED, onMusicStateChaned);
+            this.removeListener<object>(Events.LEVEL_LOADED, onLevelLoaded);
+            this.removeListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
 
             if (Application.isPlaying == false &&  MusicData._Previewer != null) {
                 _activeMusicData.music.stop(MusicData._Previewer);
@@ -82,6 +89,21 @@ namespace MoowCore
                 stopMusic();
         }
 
+        // Every level load (first load, restart, next level): play the difficulty's theme, resuming it
+        // from where the win/fail pause left it when it is the same track.
+        void onLevelLoaded(UnityEngine.Object sender, Event<object> eventData)
+        {
+            LevelSO level = LevelManager.instance != null ? LevelManager.instance.currentLevel : null;
+            isLevelHard = level != null && level.difficulty != LevelDifficulty.EASY;
+            playMusic(isLevelHard ? MusicFX.InGameHard : MusicFX.InGame);
+        }
+
+        // Revive continues the same level, so the fail pause is lifted.
+        void onReviveClicked(UnityEngine.Object sender, Event<object> eventData)
+        {
+            continueMusic();
+        }
+
         public void playCurrentMusicIfAvailable()
         {
             if (!_source.isPlaying) {
@@ -105,18 +127,21 @@ namespace MoowCore
 
         public void pauseMusic()
         {
-            if (_source.clip != null) {
-                _source.enabled = false;
+            if (_source.clip != null && _source.isPlaying) {
+                _activeMusicData.music.pause(_source);
+                _isPaused = true;
                 _isMusicActive = false;
             }
         }
 
         public void continueMusic()
         {
-            if (_source.clip != null)
+            if (_isPaused) {
                 _source.enabled = true;
-
-            _isMusicActive = true;
+                _source.UnPause();
+                _isPaused = false;
+                _isMusicActive = true;
+            }
         }
 
         void cacheData()
@@ -137,7 +162,11 @@ namespace MoowCore
         {
             _isMusicActive = true;
             _source.enabled = true;
-            if(!_source.isPlaying) {
+            if(_isPaused && _source.clip != null && _source.clip == _activeMusicData.music.clip) {
+                _source.UnPause();
+                _isPaused = false;
+            } else if(!_source.isPlaying || _source.clip != _activeMusicData.music.clip) {
+                _isPaused = false;
                 _activeMusicData.music.play(_source);
             } else {
                 _activeMusicData.music.setVolume(_volumeHeighRatio, _fadeDuration, _fadeAnimation, _source);
@@ -152,6 +181,7 @@ namespace MoowCore
         void innerStop()
         {
             _isMusicActive = false;
+            _isPaused = false;
             _source.enabled = false;
             _activeMusicData.music.stop(_source);
         }

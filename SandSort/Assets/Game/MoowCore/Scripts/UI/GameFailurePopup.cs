@@ -12,6 +12,12 @@ namespace MoowCore {
         [SerializeField] Button _retryButton;
         [SerializeField] Button _reviveButton;
         [SerializeField] Transform _popupContainerArea;
+        [Tooltip("The revive offer text (\"Get 20 seconds to keep playing!\"); hidden with the Revive button when coins are off.")]
+        [SerializeField] GameObject _reviveDescText;
+
+        // Retry's authored anchors (left half, next to Revive), captured before it is ever moved.
+        Vector2 _retryAnchorMin, _retryAnchorMax;
+        bool _retryAnchorsStored;
 
         protected override void OnEnable() {
             _retryButton.onClick.AddListener(onRetryClicked);
@@ -57,7 +63,30 @@ namespace MoowCore {
             _reviveCost.text = "" + reviveCost;
             _retryButton.interactable = true;
             _reviveButton.interactable = currentGold >= reviveCost;
+            applyCoinLayout(GameDataManager.instance.coinsEnabled);
             AudioPlayer.instance.playSFX(AudioFX.LEVEL_FAILED);
+        }
+
+        // Coins off (GameDataSO.coinsEnabled): no coin revive (button and offer text), and Retry moves to the middle keeping its
+        // width. Coins on: the authored layout, Retry left and Revive right.
+        void applyCoinLayout(bool coinsEnabled) {
+            RectTransform retry = (RectTransform)_retryButton.transform;
+            if (!_retryAnchorsStored) {
+                _retryAnchorMin = retry.anchorMin;
+                _retryAnchorMax = retry.anchorMax;
+                _retryAnchorsStored = true;
+            }
+
+            _reviveButton.gameObject.SetActive(coinsEnabled);
+            _reviveDescText.SetActive(coinsEnabled);
+            if (coinsEnabled) {
+                retry.anchorMin = _retryAnchorMin;
+                retry.anchorMax = _retryAnchorMax;
+            } else {
+                float halfWidth = (_retryAnchorMax.x - _retryAnchorMin.x) * 0.5f;
+                retry.anchorMin = new Vector2(0.5f - halfWidth, _retryAnchorMin.y);
+                retry.anchorMax = new Vector2(0.5f + halfWidth, _retryAnchorMax.y);
+            }
         }
 
         public override void hide(float duration = 0.3F, bool initialize = false) {

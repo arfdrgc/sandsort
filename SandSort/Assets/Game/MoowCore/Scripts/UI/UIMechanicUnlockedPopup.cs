@@ -16,6 +16,9 @@ public class UIMechanicUnlockedPopup : MonoBehaviour {
     [SerializeField] Image _itemIcon;
     [SerializeField] GameObject _vfx;
 
+    // From the moment the popup opens until it has faded out after the tap.
+    public bool isShowing { get; private set; }
+
     private void OnEnable() {
         this.addListener<object>(Events.LEVEL_LOADED, onLevelLoaded);
     }
@@ -38,13 +41,30 @@ public class UIMechanicUnlockedPopup : MonoBehaviour {
 
         this.dispatchEvent<object>(Events.MECHANIC_UNLOCK_DISPLAYED, null);
 
-        _itemNameText.text = data.mechanic.name;
-        _titleText.text = data.mechanic.unlockedTitle;
-        _itemIcon.sprite = data.mechanic.mechanicSprite;
-        StartCoroutine(playItemUnlockAnimationCorouine());
+        show(data.mechanic.unlockedTitle, data.mechanic.name, data.mechanic.mechanicSprite,
+            () => this.dispatchEvent<object>(Events.MECHANIC_UNLOCK_CLOSED, null));
     }
 
-    private IEnumerator playItemUnlockAnimationCorouine() {
+    // The same unlock screen for anything else, e.g. a booster (UIBoosterTutorial). onClosed runs on
+    // the tap, as the popup starts fading out. Sends no MECHANIC_UNLOCK_* events: those belong to the
+    // mechanic unlock above.
+    public void show(string title, string itemName, Sprite icon, System.Action onClosed) {
+        StopAllCoroutines();
+        _itemNameText.text = itemName;
+        _titleText.text = title;
+        _itemIcon.sprite = icon;
+        StartCoroutine(playItemUnlockAnimationCorouine(onClosed));
+    }
+
+    // Closes the popup on the spot without running its onClosed.
+    public void cancel() {
+        StopAllCoroutines();
+        isShowing = false;
+        _container.gameObject.SetActive(false);
+    }
+
+    private IEnumerator playItemUnlockAnimationCorouine(System.Action onClosed) {
+        isShowing = true;
         AudioPlayer.PlaySFX(AudioFX.POSITIVE_2);
         _tapToContinue.SetActive(false);
         _container.gameObject.SetActive(true);
@@ -67,9 +87,10 @@ public class UIMechanicUnlockedPopup : MonoBehaviour {
 
         AudioPlayer.PlaySFX(AudioFX.UI_BUTTON_CLICK);
         _vfx.transform.DOScale(0, 0.25f).From(675f);
-        this.dispatchEvent<object>(Events.MECHANIC_UNLOCK_CLOSED, null);
+        onClosed?.Invoke();
         yield return _canvasGroup.DOFade(0, 0.5f).WaitForCompletion();
         _container.gameObject.SetActive(false);
+        isShowing = false;
 
     }
 }

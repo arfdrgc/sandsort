@@ -5,9 +5,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class PowerUpManager : MonoBehaviour {
-    [SerializeField] PowerUp_2 _powerUp_2;
-    [SerializeField] PowerUp_3 _powerUp_3;
-    [SerializeField] PowerUp_4 _powerUp_4;
+    [SerializeField] PowerUp_1 _powerUp_1;
     public bool preventRaycast { get; private set; }
 
 
@@ -32,7 +30,14 @@ public class PowerUpManager : MonoBehaviour {
 
     private void onPowerUpPressed(UnityEngine.Object sender, Event<PowerUpSO> eventData) {
 
+        // Boosters switched off game-wide (GameDataSO.boostersEnabled): no press is handled.
+        if (!GameDataManager.instance.boostersEnabled) return;
+
         PowerUpSO powerUp = eventData.data;
+
+        // Only Freeze Time (PUT_1) exists in this game so far. PUT_2–4 are the reference game's
+        // boosters and stay no-ops until they are designed.
+        if (powerUp.type != PowerUpType.PUT_1) return;
 
         if(InventoryManager.instance.canUsePowerUp(powerUp) == false) {
             this.dispatchEvent(Events.POWER_UP_FAILED_TO_USE, powerUp);
@@ -40,27 +45,9 @@ public class PowerUpManager : MonoBehaviour {
         }
 
 
-        HapticManager.instance.feedback(HapticFeedbackType.FeedbackLight);
-
-        if (powerUp.type == PowerUpType.PUT_1)
-        {
-            AudioPlayer.instance.playSFX(AudioFX.WHOOSH_SHORT_2);
-            this.dispatchEvent<PowerUpSO>(Events.INCREASE_DOCK_WITH_POWER_UP, eventData.data);
-        }
-        else if (powerUp.type == PowerUpType.PUT_2)
-        {
-            AudioPlayer.instance.playSFX(AudioFX.UI_BUTTON_CLICK);
-            preventRaycast = true;
-            _powerUp_2.useIfAvailable();
-        }
-        else if (powerUp.type == PowerUpType.PUT_3)
-        {
-            AudioPlayer.instance.playSFX(AudioFX.WHOOSH_SHORT_2);
-        }
-        else if (powerUp.type == PowerUpType.PUT_4)
-        {
-            AudioPlayer.instance.playSFX(AudioFX.WHOOSH_SHORT_2);
-        }
+        // No tap feedback here: PowerUp_1 may still refuse (before the first drag, while a freeze runs).
+        // The accepted tap's sound + haptic play with the activation (UIFreezeTimeActivation).
+        _powerUp_1.useIfAvailable();
     }
 
     private void onPowerUpCancel(UnityEngine.Object sender, Event<object> eventData) {

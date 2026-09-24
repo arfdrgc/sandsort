@@ -32,18 +32,19 @@ MonoBehaviour:
     cells:
     - {x: 0, y: 0}
     color: 171
-  - position: {x: 4, y: 1}
+  - position: {x: 0, y: 1}
     shape: {fileID: 4810164085584243201, guid: 83d1f4f4250994ac3bf78b9cb8cc7bc9, type: 3}
-    rotation: 1
+    rotation: 2
     cells:
     - {x: 0, y: 0}
     color: 141
-  - position: {x: 0, y: 1}
+  - position: {x: 3, y: 1}
     shape: {fileID: 5273368748599071861, guid: 9aa0b7d6e816c428c8ad33cab94d1af9, type: 3}
-    rotation: 1
+    rotation: 2
     cells:
     - {x: 0, y: 0}
     color: 161
+  _gridBlocks: []
   _sandTexture: {fileID: 2800000, guid: fde0876ccdeab437bb7876f152a22ceb, type: 3}
   _sandPattern: {fileID: 0}
   _timerSeconds: 300

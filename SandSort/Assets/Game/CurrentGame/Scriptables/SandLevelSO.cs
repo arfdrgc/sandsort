@@ -37,6 +37,12 @@ public class SandLevelSO : LevelSO {
     [SerializeField] List<ContainerData> _containers = new();
     public List<ContainerData> containers => _containers;
 
+    // Fixed 1x1 obstacles (2026-09-24), see GridBlock. Stored apart from _containers: a Grid Block
+    // has no shape, rotation or colour and takes no part in the capacity model.
+    [Header("Grid Blocks")]
+    [SerializeField] List<GridBlockData> _gridBlocks = new();
+    public List<GridBlockData> gridBlocks => _gridBlocks;
+
     // PNG FIRST, HAND-PAINTED PATTERN AS FALLBACK (2026-09-15). _sandTexture is a pixel-art PNG
     // painted in Aseprite/Piskel and converted at load by SandPatternTextureConverter; _sandPattern
     // is the original Inspector-painted asset. When both are set the texture wins and validateLevel
@@ -213,6 +219,39 @@ public class ContainerData {
     // that means "L4 here" silently builds a 1x1 (the default `cells`) the moment the prefab is
     // moved or deleted. See SandLevelSO.validateLevel and Level.buildContainers, which report it.
     public bool hasMissingShapeReference => shape == null && !ReferenceEquals(shape, null);
+}
+
+// One fixed Grid Block (2026-09-24): Block + Position + Rotation, the same recipe as ContainerData
+// minus the colour. `block` is a Grid Block prefab (Prefabs/GridBlocks/GridBlock_L4.prefab, ...),
+// whose Shape component carries the canonical cells; the rotation is applied to the instance.
+[System.Serializable]
+public class GridBlockData {
+    // Anchor cell, in board grid space. Every occupied cell offset is relative to this.
+    public Vector2Int position;
+    // Empty = the Level prefab's default Grid Block, the 1x1 — what entries saved before Grid Blocks
+    // had shapes carry, so they keep loading as exactly one cell.
+    public GridBlock block;
+    public ShapeRotation rotation = ShapeRotation.Deg0;
+
+    [System.NonSerialized] List<Vector2Int> _resolvedCells;
+    [System.NonSerialized] GridBlock _resolvedBlock;
+    [System.NonSerialized] ShapeRotation _resolvedRotation;
+
+    // The cells this block occupies, relative to position: the block's Shape cells rotated exactly
+    // like a Container's (Shape.rotatedCells), or the single cell for an empty `block`.
+    public List<Vector2Int> occupiedCells {
+        get {
+            if (_resolvedCells == null || _resolvedBlock != block || _resolvedRotation != rotation) {
+                Shape shape = block != null ? block.shape : null;
+                _resolvedCells = shape != null
+                    ? Shape.rotatedCells(shape.canonicalCells, rotation)
+                    : new List<Vector2Int> { Vector2Int.zero };
+                _resolvedBlock = block;
+                _resolvedRotation = rotation;
+            }
+            return _resolvedCells;
+        }
+    }
 }
 
 // Retired: SandLevelSO no longer holds per-column sand data (the sand is now SandCylinderSandGrid,

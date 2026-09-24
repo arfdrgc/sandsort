@@ -89,6 +89,10 @@ namespace Moow {
         static public string POWER_UP_USED = "POWER_UP_USED";
         static public string POWER_UP_FAILED_TO_USE = "POWER_UP_FAILED_TO_USE";
         static public string UI_POWER_UP_PRESSED = "UI_POWER_UP_PRESSED";
+        static public string FREEZE_TIME_CHANGED = "FREEZE_TIME_CHANGED"; // float: freeze seconds left, every frame while Freeze Time counts down
+        static public string BOOSTER_TUTORIAL_STARTED = "BOOSTER_TUTORIAL_STARTED"; // PowerUpSO: first-unlock popup + tutorial shown, gameplay input locked
+        static public string BOOSTER_TUTORIAL_COMPLETED = "BOOSTER_TUTORIAL_COMPLETED"; // PowerUpSO: highlighted booster pressed (sent before UI_POWER_UP_PRESSED); starts the level
+        static public string BOOSTER_TUTORIAL_CANCELLED = "BOOSTER_TUTORIAL_CANCELLED"; // PowerUpSO: tutorial cut short (level load, retry, win, lose); not marked shown
 
         static public string LEVEL_LOADED = "LEVEL_LOADED";
         static public string LEVEL_READY_TO_PLAY = "LEVEL_READY_TO_PLAY";

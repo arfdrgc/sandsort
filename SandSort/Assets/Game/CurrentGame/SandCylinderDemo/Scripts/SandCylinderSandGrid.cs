@@ -766,7 +766,8 @@ public class SandCylinderSandGrid : MonoBehaviour {
     //  - Grain directly above: it drops in — except, with chance
     //    tunables.flowSpread, a supported diagonal grain takes its place, which
     //    is what lets a rising void wander sideways instead of climbing
-    //    straight up its own column.
+    //    straight up its own column. Beside open space that chance is raised
+    //    by tunables.edgeCollapse (see EDGE COLLAPSE below).
     //  - Only diagonals: one slides in with chance tunables.slideChance this
     //    pass, otherwise Deferred.
     //  - Both diagonals eligible: a fair coin.
@@ -778,7 +779,24 @@ public class SandCylinderSandGrid : MonoBehaviour {
         bool right = x < width - 1 && cells[above + x + 1] != EMPTY && cells[row + x + 1] != EMPTY;
 
         if (up) {
-            if ((left || right) && NextPhysicsRandom() < tunables.flowSpread) return PickDiagonal(x, left, right);
+            if (left && right) {
+                if (NextPhysicsRandom() < tunables.flowSpread) return PickDiagonal(x, true, true);
+            } else if (left || right) {
+                // EDGE COLLAPSE (off at tunables.edgeCollapse == 0, where this is
+                // exactly v0). Only one diagonal is eligible; if the other diagonal
+                // cell is open space (in the grid and EMPTY), the hole sits just
+                // under a face or crater wall. Taking the grain from above sends it
+                // straight up the face column, so a face only ever sheds sideways and
+                // translates; taking the sand-side diagonal sends it into the sand
+                // body, so the face slumps from its upper part toward the opening.
+                // edgeCollapse raises that chance from flowSpread to certainty. The
+                // grid's outer wall is not open space (nothing to collapse into).
+                int other = left ? x + 1 : x - 1;
+                float chance = tunables.flowSpread;
+                if (other >= 0 && other < width && cells[above + other] == EMPTY)
+                    chance += tunables.edgeCollapse * (1f - chance);
+                if (NextPhysicsRandom() < chance) return left ? x - 1 : x + 1;
+            }
             return x;
         }
 

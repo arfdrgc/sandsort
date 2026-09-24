@@ -11,6 +11,14 @@ public class UIPowerUpManager : MonoBehaviour {
 
     [SerializeField] private CanvasGroup _canvasGroup;
 
+    public IReadOnlyList<PowerUpSO> powerUps => _powerUpDatas;
+
+    // The bar's button for a booster (same index as its data), or null.
+    public UIPowerUpButton buttonFor(PowerUpSO data) {
+        int index = _powerUpDatas.IndexOf(data);
+        return index >= 0 && index < _powerUpButtons.Count ? _powerUpButtons[index] : null;
+    }
+
     private void Awake() {
         this.addListener<object>(Events.LEVEL_LOADED, onLevelLoaded);
         this.addListener<object>(Events.UI_CANCEL_POWER_UP, onCancelPowerUp);
@@ -97,6 +105,12 @@ public class UIPowerUpManager : MonoBehaviour {
 
     private void showButtons()
     {
+        // Boosters switched off game-wide (GameDataSO.boostersEnabled): the bar stays hidden.
+        if (!GameDataManager.instance.boostersEnabled) {
+            hideButtons();
+            return;
+        }
+
         if(LevelManager.instance.level == 1)
             return;
             

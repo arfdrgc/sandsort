@@ -50,6 +50,7 @@ MonoBehaviour:
     cells:
     - {x: 0, y: 0}
     color: 141
+  _gridBlocks: []
   _sandTexture: {fileID: 2800000, guid: f8af65273520a4e68a5912e9d7864d88, type: 3}
   _sandPattern: {fileID: 0}
   _timerSeconds: 300

@@ -12,12 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 40a20ddd95e4c4c59bdd4df9c39618cd, type: 3}
   m_Name: GameData
   m_EditorClassIdentifier: 
+  boostersEnabled: 0
+  coinsEnabled: 0
   skipItemIfNotRequiredPercent: 50
   reviveCosts: 840300006c070000540b0000
-  reviveTimeSeconds: 20
+  reviveTimeSeconds: 10
   addSlotCost: 1500
   addSlotLevel: 0
   levelCompleteReward: 50
   reviveMoveCount: 0
   comboDuration: 0
-  icePowerUpDuration: 30
+  icePowerUpDuration: 10

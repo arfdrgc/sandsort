@@ -24,6 +24,15 @@ public class UIPowerUpButton : MonoBehaviour {
     [SerializeField] TextMeshProUGUI _unlockedAt;
     [SerializeField] GameObject _handPoint;
 
+    [Header("Tutorial Highlight")]
+    [Tooltip("Sorting order the button is lifted to while the booster tutorial highlights it, so it draws and takes taps above the tutorial overlay.")]
+    [SerializeField] int _tutorialSortingOrder = 10;
+    [Tooltip("Where the hand starts each loop, relative to its resting spot on the button; it glides in from there.")]
+    [SerializeField] Vector2 _handApproachOffset = new Vector2(150f, 190f);
+    [SerializeField] float _handApproachDuration = 0.55f;
+    [Tooltip("How long the hand rests on the button (its tap animation playing) before the next approach.")]
+    [SerializeField] float _handRestDuration = 1.3f;
+
     [Header("Failed Animation")]
     [SerializeField] float _failedAnimationRotation;
     [SerializeField] float _failedAnimationDuration;
@@ -32,14 +41,36 @@ public class UIPowerUpButton : MonoBehaviour {
 
     PowerUpSO _data;
     bool _isLocked;
+    bool _tutorialFocus;
+    Canvas _tutorialCanvas;
+    Vector2 _handRest;
+    Sequence _handLoop;
+
+    // Freeze Time can't be stacked, so its button can't be pressed from the tap until the freeze ends.
+    // Registered for the component's whole life, not in OnEnable: the buttons are hidden on win/lose,
+    // and the freeze ending then must still re-enable this one.
+    private void Awake() {
+        this.addListener<object>(Events.POWER_UP_1_ACTIVATED, onFreezeTimeStarted);
+        this.addListener<object>(Events.POWER_UP_1_DEACTIVATED, onFreezeTimeEnded);
+    }
+
+    private void OnDestroy() {
+        this.removeListener<object>(Events.POWER_UP_1_ACTIVATED, onFreezeTimeStarted);
+        this.removeListener<object>(Events.POWER_UP_1_DEACTIVATED, onFreezeTimeEnded);
+    }
+
+    private void onFreezeTimeStarted(UnityEngine.Object sender, Event<object> eventData) {
+        if (_data != null && _data.type == PowerUpType.PUT_1) _button.interactable = false;
+    }
+
+    private void onFreezeTimeEnded(UnityEngine.Object sender, Event<object> eventData) {
+        if (_data != null && _data.type == PowerUpType.PUT_1) _button.interactable = true;
+    }
 
     private void OnEnable() {
         _button.onClick.AddListener(onClick);
         this.addListener<PowerUpSO>(Events.POWER_UP_FAILED_TO_USE, onFailedToUse);
         this.addListener<object>(Events.FREE_POWER_UP_CHANGED, onFreePowerUpChanged);
-        this.addListener<object>(Events.MECHANIC_UNLOCK_CLOSED, onMechanicUnlockClosed);
-        this.addListener<object>(Events.ON_POWER_UP_TUTORIAL_READY, onTutorialReady);
-        
 
         _unlockedAt.gameObject.SetActive(false);
     }
@@ -48,33 +79,45 @@ public class UIPowerUpButton : MonoBehaviour {
         _button.onClick.RemoveListener(onClick);
         this.removeListener<PowerUpSO>(Events.POWER_UP_FAILED_TO_USE, onFailedToUse);
         this.removeListener<object>(Events.FREE_POWER_UP_CHANGED, onFreePowerUpChanged);
-        this.removeListener<object>(Events.MECHANIC_UNLOCK_CLOSED, onMechanicUnlockClosed);
-        this.removeListener<object>(Events.ON_POWER_UP_TUTORIAL_READY, onTutorialReady);
     }
 
-    private void onMechanicUnlockClosed(UnityEngine.Object sender, Event<object> eventData)
-    {
-        ItemSaveData saveData = InventoryManager.instance.getItemSaveData(_data.itemID);
+    // The booster tutorial (UIBoosterTutorial) highlights this button: it is lifted above the tutorial
+    // overlay (its own override-sorted canvas, with a raycaster so it still takes the tap) and the hand
+    // keeps gliding onto it. Off puts it back in the bar and hides the hand.
+    public void setTutorialFocus(bool on) {
+        if (on == _tutorialFocus) return;
+        _tutorialFocus = on;
 
-        if(saveData != null && !saveData.isShowed && _data.unlockLevel == LevelManager.instance.level)
-        {
-            LevelTutorial tutorial = LevelManager.instance.currentLevel.levelTutorial;
-
-            if(tutorial == null)
-            {
-                _handPoint.SetActive(true);
-            }
-
-            InventoryManager.instance.setItemShowed(_data.itemID);
+        if (_tutorialCanvas == null) {
+            // Added once and kept: a nested canvas needs its own raycaster, since the root one no longer
+            // sees graphics under it.
+            _tutorialCanvas = gameObject.AddComponent<Canvas>();
+            gameObject.AddComponent<GraphicRaycaster>();
+            _handRest = ((RectTransform)_handPoint.transform).anchoredPosition;
         }
-    }
+        _tutorialCanvas.overrideSorting = on;
+        _tutorialCanvas.sortingOrder = on ? _tutorialSortingOrder : 0;
 
-    private void onTutorialReady(UnityEngine.Object sender, Event<object> eventData)
-    {
-        if(_data.unlockLevel == LevelManager.instance.level)
-        {
-            _handPoint.SetActive(true);
-        }
+        _handLoop?.Kill();
+        _handLoop = null;
+        RectTransform hand = (RectTransform)_handPoint.transform;
+        Image handImage = _handPoint.GetComponent<Image>();
+        hand.anchoredPosition = _handRest;
+        handImage.color = Color.white;
+        _handPoint.SetActive(on);
+        if (!on) return;
+
+        _handLoop = DOTween.Sequence()
+            .AppendCallback(() => {
+                hand.anchoredPosition = _handRest + _handApproachOffset;
+                handImage.color = new Color(1f, 1f, 1f, 0f);
+            })
+            .Append(hand.DOAnchorPos(_handRest, _handApproachDuration).SetEase(Ease.OutCubic))
+            .Join(handImage.DOFade(1f, _handApproachDuration * 0.6f))
+            .AppendInterval(_handRestDuration)
+            .Append(handImage.DOFade(0f, 0.2f))
+            .SetLoops(-1)
+            .SetLink(gameObject);
     }
 
     void onClick() {
@@ -84,6 +127,9 @@ public class UIPowerUpButton : MonoBehaviour {
             failedPopupInfo($"Unlocked At Level {_data.unlockLevel}");
             
         } else {
+            // A highlighted booster ends its tutorial first: that starts the level (Level), which the
+            // booster may need (Freeze Time does) before it is pressed below.
+            if (_tutorialFocus) this.dispatchEvent(Events.BOOSTER_TUTORIAL_COMPLETED, _data);
             this.dispatchEvent(Events.UI_POWER_UP_PRESSED, _data);
         }
     }
@@ -121,7 +167,7 @@ public class UIPowerUpButton : MonoBehaviour {
 
     public void init(PowerUpSO data) {
 
-        if(_handPoint.activeSelf)
+        if(_handPoint.activeSelf && !_tutorialFocus)
             _handPoint.SetActive(false);
 
         _data = data;

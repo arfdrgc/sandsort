@@ -69,6 +69,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: de469f9a062548cd80ac4cd08bf73d8a, type: 2}
   - {fileID: 11400000, guid: be2834b4599a4b0f98a2893565e14c99, type: 2}
   - {fileID: 11400000, guid: 48441c5375f34fff9d5d51161d6abaf8, type: 2}
+  _gridBlockPrefab: {fileID: 3726549789121618046, guid: 5cc38f7f202ad4074a5f662b52d4c269, type: 3}
   _frameEdgePrefab: {fileID: 919132149155446097, guid: d60c5efcc765b41aca138b89f48b529f, type: 3}
   _frameCornerPrefab: {fileID: 919132149155446097, guid: 0be7f4a3079ee48289a90d46537d69cf, type: 3}
   _frameTJunctionPrefab: {fileID: 919132149155446097, guid: c12863d032d644b54b24889cd9fe31e7, type: 3}

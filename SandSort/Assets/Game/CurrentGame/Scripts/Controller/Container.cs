@@ -90,6 +90,26 @@ public class Container : MonoBehaviour {
     List<int> _selectedLayerOriginals = new();
 
     bool _dragging;
+    // Single-drag input (2026-09-23). Every Container used to read the pointer in its own Update and
+    // decide on its own to start or end a drag, so nothing kept a second shape from being picked up:
+    // a lift and a re-press landing in the same frame kept the old shape held (it never saw the
+    // button up) while the new one began, and a press on the seam between two shapes could start
+    // both. The pointer is now read once per frame for all of them (pollSharedInput): a press goes to
+    // the ONE Container nearest along the ray, and no press is taken while a drag is live. On touch
+    // screens it follows one finger by fingerId rather than the touch-to-mouse emulation, which only
+    // reports a press for the first finger down: with any other finger already on the screen (a
+    // resting thumb) the press never arrived and the drag was not detected.
+    // Statics reset on a mid-Play domain reload; OnEnable re-registers every live Container, and a
+    // drag lost that way just ends (its Container is no longer the owner).
+    const int MOUSE_POINTER_ID = -1;
+    static List<Container> s_live = new();
+    static Container s_dragOwner;
+    static int s_dragPointerId;
+    static Vector2 s_dragPointerPosition;
+    static int s_polledFrame = -1;
+    // The frame the current drag began: the press frame only picks the shape up (as before), the
+    // first move is next frame.
+    static int s_dragBeganFrame = -1;
     // Set by Level on win/lose, cleared on revive: no new drag can start while it is set.
     bool _inputLocked;
     // Corner slide in progress: the axis it is sliding on and the direction (+1/-1) it started in.
@@ -229,7 +249,13 @@ public class Container : MonoBehaviour {
             }
             if (fbxDrawsShape) renderer.enabled = false;
 
-            _colliders.Add(cell.GetComponent<Collider>());
+            // The cube is drawn at 0.9 of a cell, but its collider covers the whole cell: a press on
+            // the gap between two cells of the same piece (the FBX draws them as one solid body)
+            // used to miss it. Neighbouring pieces' colliders now touch at most; the press still
+            // goes to only one of them (see pickPressedContainer).
+            BoxCollider box = cell.GetComponent<BoxCollider>();
+            box.size = new Vector3(1f / 0.9f, 1f / 0.9f, 1f);
+            _colliders.Add(box);
             _cellVisuals.Add(cell.transform);
         }
 
@@ -300,39 +326,106 @@ public class Container : MonoBehaviour {
         if (locked && _dragging) endDrag(false);
     }
 
+    void OnEnable() {
+        if (!s_live.Contains(this)) s_live.Add(this);
+    }
+
+    void OnDisable() {
+        s_live.Remove(this);
+        if (s_dragOwner == this) s_dragOwner = null;
+    }
+
     void Update() {
         if (_sealed) return;
 
-        if (!_inputLocked) pollPointer();
+        pollSharedInput();
+        if (_dragging && s_dragOwner != this) endDrag();
+        if (_dragging && Time.frameCount != s_dragBeganFrame && raycastBoardPlane(s_dragPointerPosition, out Vector3 hit)) {
+            dragTo(hit);
+        }
         updateVisual(Time.deltaTime);
     }
 
-    void pollPointer() {
-        if (!_dragging) {
-            if (Input.GetMouseButtonDown(0) && isPointerOverThis() && raycastBoardPlane(out Vector3 grab)) {
-                beginDrag(grab);
+    // Runs once per frame, from whichever Container updates first: ends the live drag when its
+    // pointer is released, otherwise hands a new press to exactly one Container. See the
+    // single-drag note on _dragging.
+    static void pollSharedInput() {
+        if (s_polledFrame == Time.frameCount) return;
+        s_polledFrame = Time.frameCount;
+
+        if (s_dragOwner != null) {
+            if (!s_dragOwner._dragging) {
+                s_dragOwner = null;
+            } else if (tryReadHeldPointer(s_dragPointerId, out Vector2 held)) {
+                s_dragPointerPosition = held;
+                return;
+            } else {
+                s_dragOwner.endDrag();
+                return;
             }
-            return;
         }
 
-        if (!Input.GetMouseButton(0)) {
-            endDrag();
-            return;
-        }
-
-        if (raycastBoardPlane(out Vector3 hit)) {
-            dragTo(hit);
+        if (Input.touchCount > 0) {
+            for (int i = 0; i < Input.touchCount; i++) {
+                Touch touch = Input.GetTouch(i);
+                if (touch.phase == TouchPhase.Began && tryBeginDragAt(touch.fingerId, touch.position)) return;
+            }
+        } else if (Input.GetMouseButtonDown(0)) {
+            tryBeginDragAt(MOUSE_POINTER_ID, Input.mousePosition);
         }
     }
 
-    bool isPointerOverThis() {
-        if (Camera.main == null) return false;
-
-        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-        foreach (Collider collider in _colliders) {
-            if (collider.Raycast(ray, out _, 1000f)) return true;
+    static bool tryReadHeldPointer(int pointerId, out Vector2 position) {
+        if (pointerId == MOUSE_POINTER_ID) {
+            position = Input.mousePosition;
+            return Input.GetMouseButton(0);
         }
+
+        for (int i = 0; i < Input.touchCount; i++) {
+            Touch touch = Input.GetTouch(i);
+            if (touch.fingerId != pointerId) continue;
+            position = touch.position;
+            return touch.phase != TouchPhase.Ended && touch.phase != TouchPhase.Canceled;
+        }
+        position = default;
         return false;
+    }
+
+    static bool tryBeginDragAt(int pointerId, Vector2 screenPosition) {
+        Container pressed = pickPressedContainer(screenPosition);
+        if (pressed == null || !pressed.raycastBoardPlane(screenPosition, out Vector3 grab)) return false;
+
+        s_dragOwner = pressed;
+        s_dragPointerId = pointerId;
+        s_dragPointerPosition = screenPosition;
+        s_dragBeganFrame = Time.frameCount;
+        pressed.beginDrag(grab);
+        return true;
+    }
+
+    // The Container whose cell the ray hits first, among those that can be picked up now.
+    static Container pickPressedContainer(Vector2 screenPosition) {
+        if (Camera.main == null) return null;
+
+        Ray ray = Camera.main.ScreenPointToRay(screenPosition);
+        Container nearest = null;
+        float nearestDistance = float.MaxValue;
+        foreach (Container container in s_live) {
+            if (container == null || container._sealed || container._inputLocked || container._board == null) continue;
+            if (container.raycastCells(ray, out float distance) && distance < nearestDistance) {
+                nearest = container;
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
+    }
+
+    bool raycastCells(Ray ray, out float distance) {
+        distance = float.MaxValue;
+        foreach (Collider collider in _colliders) {
+            if (collider != null && collider.Raycast(ray, out RaycastHit hit, 1000f)) distance = Mathf.Min(distance, hit.distance);
+        }
+        return distance < float.MaxValue;
     }
 
     // Pointer down on this Container = drag start = wake up (see the Awake note above).
@@ -370,6 +463,7 @@ public class Container : MonoBehaviour {
     // win/lose stinger.
     void endDrag(bool playDropSfx = true) {
         _dragging = false;
+        if (s_dragOwner == this) s_dragOwner = null;
         setSelectedOutline(false);
         setSelectedRenderLayer(false);
         if (playDropSfx) AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
@@ -400,7 +494,7 @@ public class Container : MonoBehaviour {
             for (int y = 0; y < size.y; y++) {
                 Vector2Int cell = new Vector2Int(x, y);
                 Container occupant = _board.occupantAt(cell);
-                if (occupant != null && occupant != this) _blockedCells.Add(cell);
+                if ((occupant != null && occupant != this) || _board.isBlocked(cell)) _blockedCells.Add(cell);
             }
         }
     }
@@ -555,7 +649,7 @@ public class Container : MonoBehaviour {
         transform.position = _board.anchorPointToWorldCenter(_visualAnchor, _shape);
     }
 
-    bool raycastBoardPlane(out Vector3 hit) {
+    bool raycastBoardPlane(Vector2 screenPosition, out Vector3 hit) {
         if (Camera.main == null) {
             hit = default;
             return false;
@@ -564,7 +658,7 @@ public class Container : MonoBehaviour {
         // Board lies flat in the XY plane facing the camera (see Board.cs's layout convention),
         // so the drag plane's normal is the Board's forward (Z) axis, not its up (Y) axis.
         Plane plane = new Plane(_board.transform.forward, _board.transform.position);
-        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        Ray ray = Camera.main.ScreenPointToRay(screenPosition);
 
         if (plane.Raycast(ray, out float distance)) {
             hit = ray.GetPoint(distance);
@@ -610,6 +704,7 @@ public class Container : MonoBehaviour {
     void seal() {
         _sealed = true;
         _dragging = false;
+        if (s_dragOwner == this) s_dragOwner = null;
         setSelectedOutline(false);
         setSelectedRenderLayer(false);
         _board.free(this);

@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SandLevelSO
   _levelPrefab: {fileID: 3500330111660482340, guid: 6cadf0c9289244df8da0cd252d847e23, type: 3}
   _difficulty: 0
-  _levelTutorial: {fileID: 0}
+  _levelTutorial: {fileID: 2458227887089836931, guid: f124c419c5c114dd2a4b6257eef5155e, type: 3}
   _expandBottom: 0
   _centerFactor: 0
   _colorPalette: {fileID: 0}
@@ -32,6 +32,7 @@ MonoBehaviour:
     cells:
     - {x: 0, y: 0}
     color: 161
+  _gridBlocks: []
   _sandTexture: {fileID: 2800000, guid: 5bbadedf245894c5ba4c0532136d6995, type: 3}
   _sandPattern: {fileID: 0}
-  _timerSeconds: 300
+  _timerSeconds: 5

@@ -31,13 +31,18 @@ using UnityEngine;
 // the decision to revisit — the module rule in FRAME_KIT.md still describes the geometry correctly.
 public class BoardFrame : MonoBehaviour {
 
-    // FRAME_KIT: border width, and therefore also the divider's thickness — in the three-piece kit
-    // the divider IS an Edge, so it cannot be any other thickness.
-    public const float BORDER_WIDTH = 0.19f;
+    // Thinning factor on the kit as authored (user's call, 2026-09-24: the 0.19 rim read too thick).
+    // Applied to the pieces' in-plane cross-section only — Z (height) stays 1. Edges take it on their
+    // width axis; Corners and T-junctions take it on both in-plane axes, which thins both arms AND
+    // shortens each arm by the same factor, so JOINT_ARM scales with it and the runs grow to meet them.
+    const float FRAME_THIN = 0.8f;
+    // FRAME_KIT: border width (0.19 as authored), and therefore also the divider's thickness — in the
+    // three-piece kit the divider IS an Edge, so it cannot be any other thickness.
+    public const float BORDER_WIDTH = 0.19f * FRAME_THIN;
     // FRAME_KIT: the Edge module is exactly one cell.
     const float EDGE_LENGTH = 0.85f;
-    // FRAME_KIT: a Corner or T-junction arm covers half a cell of the run it terminates.
-    const float JOINT_ARM = EDGE_LENGTH * 0.5f;
+    // FRAME_KIT: a Corner or T-junction arm covers half a cell of the run it terminates (before thinning).
+    const float JOINT_ARM = EDGE_LENGTH * 0.5f * FRAME_THIN;
 
     // The FBXs are exported with the same Blender contract as the Shape pieces (plane XY, thickness
     // Z, Scale 1.0, -Z Forward / Y Up, bakeAxisConversion off), so they arrive carrying the
@@ -125,7 +130,7 @@ public class BoardFrame : MonoBehaviour {
         float top = sandWindow.yMax;
 
         // The divider fills the gap Level already leaves between the board's top edge and the sand's
-        // bottom edge (gridSandGapCells). The kit's divider is an Edge, so it is 0.19 thick and
+        // bottom edge (gridSandGapCells). The kit's divider is an Edge, so it is BORDER_WIDTH thick and
         // cannot stretch across; when the real gap is not 0.19 the divider is CENTRED in it, which
         // keeps both joins symmetric and the error halved on each side. The warning names the
         // gridSandGapCells that removes the discrepancy entirely — that knob is purely visual
@@ -144,16 +149,16 @@ public class BoardFrame : MonoBehaviour {
         // from bottom-left; the T-junctions' pivots are the divider face they carry (the right one
         // carries the divider's BOTTOM face, the left one its TOP face), which is what makes the
         // two stems meet the same 0.19 band from opposite sides.
-        place(_cornerPrefab, "Corner_BottomLeft", left, bottom, 0f, 1f);
-        place(_cornerPrefab, "Corner_BottomRight", right, bottom, 90f, 1f);
-        place(_cornerPrefab, "Corner_TopRight", right, top, 180f, 1f);
-        place(_cornerPrefab, "Corner_TopLeft", left, top, -90f, 1f);
-        place(_tJunctionPrefab, "TJunction_Right", right, dividerBottom, 90f, 1f);
-        place(_tJunctionPrefab, "TJunction_Left", left, dividerTop, -90f, 1f);
+        place(_cornerPrefab, "Corner_BottomLeft", left, bottom, 0f, FRAME_THIN);
+        place(_cornerPrefab, "Corner_BottomRight", right, bottom, 90f, FRAME_THIN);
+        place(_cornerPrefab, "Corner_TopRight", right, top, 180f, FRAME_THIN);
+        place(_cornerPrefab, "Corner_TopLeft", left, top, -90f, FRAME_THIN);
+        place(_tJunctionPrefab, "TJunction_Right", right, dividerBottom, 90f, FRAME_THIN);
+        place(_tJunctionPrefab, "TJunction_Left", left, dividerTop, -90f, FRAME_THIN);
 
         // --- runs: every span between two joints ----------------------------------------------
         // Each run starts half a cell in from the joint that opens it and ends half a cell short of
-        // the joint that closes it, so a run's length is (side length - 0.85) by construction.
+        // the joint that closes it, so a run's length is (side length - 2 x JOINT_ARM) by construction.
         float spanX = (right - JOINT_ARM) - (left + JOINT_ARM);
         float gridSpanY = (dividerBottom - JOINT_ARM) - (bottom + JOINT_ARM);
         float sandSpanY = (top - JOINT_ARM) - (dividerTop + JOINT_ARM);
@@ -172,10 +177,10 @@ public class BoardFrame : MonoBehaviour {
     // its length axis — see the class note on why this replaces the kit's per-cell tiling.
     void emitRun(string name, Vector2 start, Vector2 direction, float length, float rotationZ) {
         if (length < -EPSILON) {
-            Debug.LogWarning($"[BoardFrame::emitRun] '{name}' is {length:0.####} long — the window side is shorter than the two joints that close it ({EDGE_LENGTH}). The joints will overlap; the level is too small for the frame kit.");
+            Debug.LogWarning($"[BoardFrame::emitRun] '{name}' is {length:0.####} long — the window side is shorter than the two joints that close it ({2f * JOINT_ARM:0.####}). The joints will overlap; the level is too small for the frame kit.");
             return;
         }
-        if (length <= EPSILON) return; // exactly one cell of side: the two joint arms already close it.
+        if (length <= EPSILON) return; // the two joint arms already close the side.
 
         place(_edgePrefab, name, start.x, start.y, rotationZ, length / EDGE_LENGTH);
     }
@@ -199,8 +204,9 @@ public class BoardFrame : MonoBehaviour {
         if (_frameMaterial != null) Destroy(_frameMaterial);
     }
 
-    // scaleAlongLength scales the piece's own X, which after FBX_TO_BOARD is its length axis — the
-    // only axis the kit permits scaling on. It is always 1 for corners and T-junctions.
+    // scaleAlongLength scales the piece's own X, which after FBX_TO_BOARD is its length axis. Y (its
+    // in-plane width) always takes FRAME_THIN; Z (height) is never scaled. Corners and T-junctions pass
+    // FRAME_THIN as scaleAlongLength too, so they shrink uniformly in-plane and keep their shape.
     void place(GameObject prefab, string name, float x, float y, float rotationZ, float scaleAlongLength) {
         GameObject piece = Instantiate(prefab, transform);
         piece.name = name;
@@ -209,7 +215,7 @@ public class BoardFrame : MonoBehaviour {
         // Z first, then the FBX conversion — the same order Shape_*.prefab uses (VisualRoot carries
         // the board-space rotation, the FBX instance under it carries the conversion).
         t.localRotation = Quaternion.Euler(0f, 0f, rotationZ) * FBX_TO_BOARD;
-        t.localScale = new Vector3(scaleAlongLength, 1f, 1f);
+        t.localScale = new Vector3(scaleAlongLength, FRAME_THIN, 1f);
         if (_frameMaterial != null) {
             foreach (MeshRenderer renderer in piece.GetComponentsInChildren<MeshRenderer>(true)) renderer.sharedMaterial = _frameMaterial;
         }

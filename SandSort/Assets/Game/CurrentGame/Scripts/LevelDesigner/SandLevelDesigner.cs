@@ -12,6 +12,15 @@ using UnityEngine;
 //  - edits that list: create (1), drag to move, R rotate, Q next pool shape, C / Shift+C colour,
 //    Delete remove; S saves it back into the SandLevelSO asset, L reloads from the asset.
 //
+// GRID BLOCKS (2026-09-24): the level's fixed obstacles (SandLevelSO.gridBlocks) are edited in the
+// same working list as their own Entry kind (Entry.isBlock): 2 creates the default one
+// (Level.gridBlockPrefab, the 1x1) at the hovered cell, drag moves it, Delete / Backspace removes it.
+// A Grid Block prefab carries a Shape component, so a block entry is the same ContainerData a piece
+// is — data.shape is the block prefab's Shape — and R (rotate) and Q (next shape, through
+// _gridBlockPool instead of _shapePool) run the exact code the pieces use. C does not apply: a Grid
+// Block has no colour. They count in the overlap validation like any piece, and Save writes them
+// into SandLevelSO._gridBlocks (prefab + position + rotation).
+//
 // What it edits is the ContainerData representation (shape / position / rotation / color), on a
 // copy: the SandLevelSO asset is READ at activation and written ONLY by S (Editor only, through
 // Undo + SerializedObject, see save). The running Level is never rebuilt from it — reopening the
@@ -48,6 +57,7 @@ using UnityEngine;
 public class SandLevelDesigner : MonoBehaviour {
 
     const string SHAPE_PREFAB_FOLDER = "Assets/Game/CurrentGame/Prefabs/Shapes";
+    const string GRID_BLOCK_PREFAB_FOLDER = "Assets/Game/CurrentGame/Prefabs/GridBlocks";
     // The Level prefab: its SandPaletteSO, slot -> ItemColor mapping and ColorSO list are what the
     // Inspector analyses a texture against before a Level exists in the scene.
     public const string LEVEL_PREFAB_PATH = "Assets/Game/CurrentGame/Prefabs/Level.prefab";
@@ -71,6 +81,8 @@ public class SandLevelDesigner : MonoBehaviour {
     [SerializeField] ColorSO.ItemColor _defaultColor = ColorSO.ItemColor.RED;
     [Tooltip("The Shape Pool: the canonical Shape prefabs, in the order Q cycles through them. 1 creates the first one. Filled from Prefabs/Shapes by Reset or the 'Fill Shape Pool From Project' context menu.")]
     [SerializeField] List<Shape> _shapePool = new();
+    [Tooltip("The Grid Block pool: one prefab per shape under Prefabs/GridBlocks, in the order Q cycles a selected Grid Block through them. Filled by Reset or the 'Fill Shape Pool From Project' context menu. Empty = Q has only the Level prefab's default Grid Block.")]
+    [SerializeField] List<GridBlock> _gridBlockPool = new();
 
     [Header("Sand Texture Colour Debugger")]
     [Tooltip("The sand texture to analyse. Empty = the loaded level's own sand texture (SandLevelSO.sandTexture). Only colours found in it (that also have a ColorSO) can be assigned with C / Shift+C or 1.")]
@@ -83,6 +95,10 @@ public class SandLevelDesigner : MonoBehaviour {
     class Entry {
         public ContainerData data;
         public Shape instance;
+        // A Grid Block rather than a piece. data.shape is then the Grid Block prefab's Shape and
+        // data.color is unused; position, rotation and the footprint work exactly as for a piece.
+        public bool isBlock;
+        public string label => isBlock ? $"GridBlock {data.shape.type}" : data.shape.type.ToString();
         // Per-preview copy of the ColorSO material, so hover/selected/invalid tints never write into
         // the shared asset. Owned here, destroyed with the preview.
         public Material material;
@@ -139,6 +155,9 @@ public class SandLevelDesigner : MonoBehaviour {
     // Legacy (shape-less) entries the asset had and this tool does not carry — Save drops them.
     int _skippedLegacy;
 
+    // Q's list for Grid Block entries: _gridBlockPool as Shapes (or just the Level's default block).
+    List<Shape> _gridBlockShapes = new();
+
     Level _level;
     Board _board;
     SandLevelSO _levelSO;
@@ -164,7 +183,7 @@ public class SandLevelDesigner : MonoBehaviour {
     public IReadOnlyList<ContainerData> entries {
         get {
             List<ContainerData> list = new(_entries.Count);
-            foreach (Entry entry in _entries) list.Add(entry.data);
+            foreach (Entry entry in _entries) if (!entry.isBlock) list.Add(entry.data);
             return list;
         }
     }
@@ -242,11 +261,15 @@ public class SandLevelDesigner : MonoBehaviour {
             return;
         }
 
-        // Gameplay pieces out of the way; remembered so only what we hid is put back.
+        // Gameplay pieces (and Grid Blocks) out of the way; remembered so only what we hid is put back.
         _hiddenContainers.Clear();
         foreach (Container container in _level.GetComponentsInChildren<Container>(false)) {
             container.gameObject.SetActive(false);
             _hiddenContainers.Add(container.gameObject);
+        }
+        foreach (GridBlock block in _level.GetComponentsInChildren<GridBlock>(false)) {
+            block.gameObject.SetActive(false);
+            _hiddenContainers.Add(block.gameObject);
         }
 
         GameObject root = new GameObject("SandLevelDesigner_Previews");
@@ -274,12 +297,25 @@ public class SandLevelDesigner : MonoBehaviour {
             _entries.Add(entry);
             buildPreview(entry);
         }
+        rebuildGridBlockShapes();
+        int blockCount = 0;
+        foreach (GridBlockData source in _levelSO.gridBlocks) {
+            GridBlock prefab = source.block != null ? source.block : _level.gridBlockPrefab;
+            if (prefab == null) {
+                log($"Skipping the Grid Block at {source.position}: it names no prefab and the Level prefab has no default Grid Block. A Save will NOT keep it.");
+                continue;
+            }
+            Entry entry = newBlockEntry(source.position, prefab.shape, source.rotation);
+            _entries.Add(entry);
+            buildPreview(entry);
+            blockCount++;
+        }
         revalidateAll();
         int badColors = 0;
         foreach (Entry entry in _entries) if (!entry.colorValid) badColors++;
-        log($"Designer ON — {_entries.Count} piece(s) from {_levelSO.name}, {_colorChoices.Count} colour(s) available"
+        log($"Designer ON — {_entries.Count - blockCount} piece(s) + {blockCount} Grid Block(s) from {_levelSO.name}, {_colorChoices.Count} colour(s) available"
             + (badColors > 0 ? $", {badColors} piece(s) with a colour that has no ColorSO (orange — recolour before saving)" : "")
-            + $". 1 create · drag move · R rotate · Q next shape · C colour · Delete remove · S save · L reload · {_toggleKey} exit.");
+            + $". 1 create · 2 Grid Block · drag move · R rotate · Q next shape · C colour · Delete/Backspace remove · S save · L reload · {_toggleKey} exit.");
     }
 
     void deactivate() {
@@ -449,7 +485,7 @@ public class SandLevelDesigner : MonoBehaviour {
     // Pieces in the working list carrying this colour. 0 when not designing.
     public int placedCountOf(ColorSO.ItemColor color) {
         int count = 0;
-        foreach (Entry entry in _entries) if (entry.data.color == color) count++;
+        foreach (Entry entry in _entries) if (!entry.isBlock && entry.data.color == color) count++;
         return count;
     }
 
@@ -466,10 +502,12 @@ public class SandLevelDesigner : MonoBehaviour {
     // Same recipe as Level.buildContainers for the visual half only: the canonical prefab,
     // Shape.applyRotation for the orientation, the board's cell size, the Container colour material
     // on the FBX renderers. No Container, no ExtractionGrid, no fill.
+    // A Grid Block goes through the same steps (its prefab's Shape is data.shape) and differs only
+    // in its material, see applyBlockMaterial.
     void buildPreview(Entry entry) {
         ContainerData data = entry.data;
         Shape instance = Instantiate(data.shape, _previewRoot, false);
-        instance.name = $"Design_{data.color}_{data.shape.type}";
+        instance.name = entry.isBlock ? $"Design_GridBlock_{data.shape.type}" : $"Design_{data.color}_{data.shape.type}";
         instance.applyRotation(data.rotation);
         instance.setCellWorldSize(_board.cellSize);
         entry.instance = instance;
@@ -482,9 +520,41 @@ public class SandLevelDesigner : MonoBehaviour {
             ? instance.fbxPlaceholder.GetComponentsInChildren<Renderer>(true)
             : instance.GetComponentsInChildren<Renderer>(true);
         entry.fallbackMaterial = entry.renderers.Length > 0 ? entry.renderers[0].sharedMaterial : null;
-        applyColorMaterial(entry);
+        if (entry.isBlock) applyBlockMaterial(entry);
+        else applyColorMaterial(entry);
 
         placePreview(entry);
+    }
+
+    // A Grid Block keeps its prefab's own material (no colour system), on a per-preview copy so the
+    // hover / selected / invalid tints stay off the shared asset. The preview is never
+    // GridBlock.initialize'd — that would block Board cells, and the designer never touches the
+    // Board's occupancy.
+    void applyBlockMaterial(Entry entry) {
+        entry.colorValid = true;
+        if (entry.fallbackMaterial == null) return;
+        entry.material = new Material(entry.fallbackMaterial) { name = "DesignerGridBlock (runtime)" };
+        entry.baseColor = readColor(entry.material);
+        foreach (Renderer renderer in entry.renderers) renderer.sharedMaterial = entry.material;
+    }
+
+    Entry newBlockEntry(Vector2Int position, Shape blockShape, ShapeRotation rotation) {
+        return new Entry {
+            isBlock = true,
+            data = new ContainerData { position = position, shape = blockShape, rotation = rotation },
+        };
+    }
+
+    // Q's cycle for Grid Blocks: the pool's Shapes, or the Level's default block alone when the pool
+    // is empty (Q is then a no-op). The default is always in it so a block created with 2 is found.
+    void rebuildGridBlockShapes() {
+        _gridBlockShapes.Clear();
+        foreach (GridBlock block in _gridBlockPool) {
+            if (block != null && block.shape != null && !_gridBlockShapes.Contains(block.shape)) _gridBlockShapes.Add(block.shape);
+        }
+        if (_level.gridBlockPrefab != null && !_gridBlockShapes.Contains(_level.gridBlockPrefab.shape)) {
+            _gridBlockShapes.Insert(0, _level.gridBlockPrefab.shape);
+        }
     }
 
     // (Re)builds the preview's colour material from data.color: the Container's ColorSO material,
@@ -624,14 +694,27 @@ public class SandLevelDesigner : MonoBehaviour {
             else log("1: point at a Board cell to create there.");
             return;
         }
+        if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) {
+            if (_level.gridBlockPrefab == null) log("2: the Level prefab has no Grid Block prefab assigned.");
+            else if (_hoverCellValid) createBlockAt(_hoverCell);
+            else log("2: point at a Board cell to place a Grid Block there.");
+            return;
+        }
 
         Entry target = _hovered ?? _selected;
         if (target == null || _dragging) return;
 
+        if (Input.GetKeyDown(KeyCode.Delete) || Input.GetKeyDown(KeyCode.Backspace)) {
+            remove(target);
+            return;
+        }
         if (Input.GetKeyDown(KeyCode.R)) rotate(target);
         else if (Input.GetKeyDown(KeyCode.Q)) nextShape(target);
-        else if (Input.GetKeyDown(KeyCode.C)) cycleColor(target, Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? -1 : 1);
-        else if (Input.GetKeyDown(KeyCode.Delete) || Input.GetKeyDown(KeyCode.Backspace)) remove(target);
+        else if (Input.GetKeyDown(KeyCode.C)) {
+            // A Grid Block has no colour.
+            if (target.isBlock) log("Grid Blocks have no colour — R rotates, Q changes the shape.");
+            else cycleColor(target, Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? -1 : 1);
+        }
     }
 
     // -- Edits --------------------------------------------------------------------------------
@@ -652,6 +735,18 @@ public class SandLevelDesigner : MonoBehaviour {
         _dirty = true;
         log($"Created {entry.data.shape.type} ({entry.data.color}) at {cell}."
             + (entry.valid ? "" : " It is off-board or overlapping — fix before saving."));
+    }
+
+    // 2: a Grid Block at the hovered cell. Like 1, an occupied cell is allowed — the block is then
+    // red and blocks Save until one of the two is moved.
+    void createBlockAt(Vector2Int cell) {
+        Entry entry = newBlockEntry(cell, _level.gridBlockPrefab.shape, ShapeRotation.Deg0);
+        _entries.Add(entry);
+        buildPreview(entry);
+        _selected = entry;
+        revalidateAll();
+        _dirty = true;
+        log($"Created a Grid Block at {cell}." + (entry.valid ? "" : " The cell is taken — fix before saving."));
     }
 
     // C / Shift+C: next / previous colour in _colorChoices — the level's sand palette colours that
@@ -689,10 +784,13 @@ public class SandLevelDesigner : MonoBehaviour {
     // Swaps the canonical prefab for the next one in the pool and rebuilds the preview. Position,
     // rotation and colour are left exactly as they were (the same ContainerData object, three fields
     // untouched); only `shape` changes.
+    // A Grid Block cycles through _gridBlockShapes instead of the piece pool; everything else is the
+    // same (its colour field is simply unused).
     void nextShape(Entry entry) {
+        List<Shape> pool = entry.isBlock ? _gridBlockShapes : _shapePool;
         Shape previous = entry.data.shape;
-        int index = _shapePool.IndexOf(previous);
-        Shape next = _shapePool[(index + 1) % _shapePool.Count];
+        int index = pool.IndexOf(previous);
+        Shape next = pool[(index + 1) % pool.Count];
         if (next == previous) return;
 
         entry.data.shape = next;
@@ -700,7 +798,7 @@ public class SandLevelDesigner : MonoBehaviour {
         buildPreview(entry);
         revalidateAll();
         _dirty = true;
-        log($"Shape {previous.type} -> {next.type} (position {entry.data.position}, {entry.data.rotation}, {entry.data.color} kept)."
+        log($"{(entry.isBlock ? "Grid Block" : "Shape")} {previous.type} -> {next.type} (position {entry.data.position}, {entry.data.rotation}{(entry.isBlock ? "" : $", {entry.data.color}")} kept)."
             + (entry.valid ? "" : " Now off-board or overlapping — fix before saving."));
     }
 
@@ -711,7 +809,7 @@ public class SandLevelDesigner : MonoBehaviour {
         if (_hovered == entry) _hovered = null;
         revalidateAll();
         _dirty = true;
-        log($"Removed {entry.data.shape.type} at {entry.data.position}.");
+        log($"Removed {entry.label} at {entry.data.position}.");
     }
 
     // -- Save ---------------------------------------------------------------------------------
@@ -732,7 +830,7 @@ public class SandLevelDesigner : MonoBehaviour {
         List<string> problems = new();
         for (int i = 0; i < _entries.Count; i++) {
             ContainerData data = _entries[i].data;
-            string piece = $"#{i} {data.shape.type} at {data.position}";
+            string piece = $"#{i} {_entries[i].label} at {data.position}";
             if (!_entries[i].valid) problems.Add($"{piece} is off-board or overlapping");
             if (!_entries[i].colorValid) problems.Add($"{piece} has colour {data.color}, which has no ColorSO on the Level prefab");
         }
@@ -743,10 +841,26 @@ public class SandLevelDesigner : MonoBehaviour {
 
         UnityEditor.Undo.RecordObject(_levelSO, "Save Sand Level");
         UnityEditor.SerializedObject serialized = new UnityEditor.SerializedObject(_levelSO);
+        List<ContainerData> pieces = new();
+        List<ContainerData> blocks = new();
+        foreach (Entry entry in _entries) {
+            if (entry.isBlock) blocks.Add(entry.data);
+            else pieces.Add(entry.data);
+        }
+
+        UnityEditor.SerializedProperty gridBlocks = serialized.FindProperty("_gridBlocks");
+        gridBlocks.arraySize = blocks.Count;
+        for (int i = 0; i < blocks.Count; i++) {
+            UnityEditor.SerializedProperty element = gridBlocks.GetArrayElementAtIndex(i);
+            element.FindPropertyRelative("position").vector2IntValue = blocks[i].position;
+            element.FindPropertyRelative("block").objectReferenceValue = blocks[i].shape.GetComponent<GridBlock>();
+            element.FindPropertyRelative("rotation").intValue = (int)blocks[i].rotation;
+        }
+
         UnityEditor.SerializedProperty containers = serialized.FindProperty("_containers");
-        containers.arraySize = _entries.Count;
-        for (int i = 0; i < _entries.Count; i++) {
-            ContainerData data = _entries[i].data;
+        containers.arraySize = pieces.Count;
+        for (int i = 0; i < pieces.Count; i++) {
+            ContainerData data = pieces[i];
             UnityEditor.SerializedProperty element = containers.GetArrayElementAtIndex(i);
             element.FindPropertyRelative("position").vector2IntValue = data.position;
             element.FindPropertyRelative("shape").objectReferenceValue = data.shape;
@@ -763,7 +877,7 @@ public class SandLevelDesigner : MonoBehaviour {
         UnityEditor.AssetDatabase.SaveAssetIfDirty(_levelSO);
 
         _dirty = false;
-        log($"Saved {_entries.Count} piece(s) into {_levelSO.name}"
+        log($"Saved {pieces.Count} piece(s) + {blocks.Count} Grid Block(s) into {_levelSO.name}"
             + (_skippedLegacy > 0 ? $" — {_skippedLegacy} legacy shape-less entry(ies) the tool skipped are gone from the asset" : "")
             + ". Reopen the level to play it.");
 #else
@@ -846,11 +960,11 @@ public class SandLevelDesigner : MonoBehaviour {
         }
 
         string hover = _hoverCellValid ? _hoverCell.ToString() : "—";
-        string piece = _selected != null
-            ? $"{_selected.data.shape.type} @ {_selected.data.position} {_selected.data.rotation} {_selected.data.color}{(_selected.valid ? "" : "  INVALID")}{(_selected.colorValid ? "" : "  NO ColorSO")}"
-            : "none";
-        GUI.Label(new Rect(10, 10, 900, 24), $"DESIGN MODE ({_toggleKey} exits) — {_levelSO.name}{(_dirty ? " *UNSAVED*" : "")} — {_entries.Count} piece(s) — cell {hover} — selected: {piece}");
-        GUI.Label(new Rect(10, 32, 900, 24), "1: create · drag: move · R: rotate · Q: next shape · C / Shift+C: colour · Delete: remove · S: save · L: reload · colour info: Inspector");
+        string piece = _selected == null ? "none"
+            : _selected.isBlock ? $"GridBlock {_selected.data.shape.type} @ {_selected.data.position} {_selected.data.rotation}{(_selected.valid ? "" : "  INVALID")}"
+            : $"{_selected.data.shape.type} @ {_selected.data.position} {_selected.data.rotation} {_selected.data.color}{(_selected.valid ? "" : "  INVALID")}{(_selected.colorValid ? "" : "  NO ColorSO")}";
+        GUI.Label(new Rect(10, 10, 900, 24), $"DESIGN MODE ({_toggleKey} exits) — {_levelSO.name}{(_dirty ? " *UNSAVED*" : "")} — {_entries.Count} item(s) — cell {hover} — selected: {piece}");
+        GUI.Label(new Rect(10, 32, 900, 24), "1: create · 2: Grid Block · drag: move · R: rotate · Q: next shape · C / Shift+C: colour · Delete / Backspace: remove · S: save · L: reload · colour info: Inspector");
         GUI.Label(new Rect(10, 54, 900, 24), _lastMessage);
     }
 
@@ -872,6 +986,16 @@ public class SandLevelDesigner : MonoBehaviour {
         }
         _shapePool.Sort((a, b) => {
             int byType = ((int)a.type).CompareTo((int)b.type);
+            return byType != 0 ? byType : string.CompareOrdinal(a.name, b.name);
+        });
+
+        _gridBlockPool.Clear();
+        foreach (string guid in UnityEditor.AssetDatabase.FindAssets("t:Prefab", new[] { GRID_BLOCK_PREFAB_FOLDER })) {
+            GridBlock block = UnityEditor.AssetDatabase.LoadAssetAtPath<GridBlock>(UnityEditor.AssetDatabase.GUIDToAssetPath(guid));
+            if (block != null && block.shape != null) _gridBlockPool.Add(block);
+        }
+        _gridBlockPool.Sort((a, b) => {
+            int byType = ((int)a.shape.type).CompareTo((int)b.shape.type);
             return byType != 0 ? byType : string.CompareOrdinal(a.name, b.name);
         });
         UnityEditor.EditorUtility.SetDirty(this);

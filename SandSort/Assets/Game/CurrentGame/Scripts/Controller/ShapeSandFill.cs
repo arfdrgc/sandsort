@@ -76,10 +76,20 @@ public class ShapeSandFill : MonoBehaviour {
     // RIM_GAIN stays at its 1.10 headroom ceiling (the reference's 1.20 would clip), so the deep/full
     // ratio here is 0.53 against the reference's 0.49. The ramp between the two is not linear any more —
     // see BRIGHTNESS_CURVE.
-    const float DEEP_GAIN = 0.58f;
+    //
+    // DEEP_GAIN 0.58 replaced by DEEP_POWER (2026-09-24). A straight RGB scale by 0.58 dropped the piece
+    // ~37% below its empty floor (ShapeCavityFloor.DARKEN 0.92) on the first few percent of sand, and
+    // scaling toward black turns light colours olive/grey (yellow, white) and saturated ones brown — a
+    // little sand overpowered the block colour. Measured in Play at 5% fill: gains of 0.80, 0.86 and
+    // 0.92 all still read dull on yellow and white. The deep colour is now the base colour raised to
+    // DEEP_POWER per channel: the weaker channels drop more than the dominant one, so the sand reads as
+    // a deeper, richer version of the same hue instead of a dirtier one. Light colours (all channels
+    // near 1) barely shift and show the first sand by its grain; strong colours deepen visibly. The
+    // layer still ramps from this toward RIM_GAIN along BRIGHTNESS_CURVE, both unchanged.
+    const float DEEP_POWER = 1.6f;
     const float RIM_GAIN = 1.10f;
 
-    // Where the layer sits between DEEP_GAIN (0) and RIM_GAIN (1) at a given fill — the reference's
+    // Where the layer sits between the deep colour (0) and RIM_GAIN (1) at a given fill — the reference's
     // measured mean-interior blue channel (§5 table), normalised between its darkest (111) and its
     // brightest (227). Flat and dark through ~32%, near-linear up to ~80%, eased out by 95%, flat to 100%.
     // Evaluated piecewise-linearly; pairs of (fill, level).
@@ -743,7 +753,11 @@ public class ShapeSandFill : MonoBehaviour {
         // How far the first-contact blob has grown (1 once settled), and the one colour for the whole
         // layer, following the reference's measured brightness curve.
         float reveal = _reveal;
-        Color c = _baseColor * Mathf.Lerp(DEEP_GAIN, RIM_GAIN, evaluate(BRIGHTNESS_CURVE, fill));
+        Color deep = new Color(
+            Mathf.Pow(_baseColor.r, DEEP_POWER),
+            Mathf.Pow(_baseColor.g, DEEP_POWER),
+            Mathf.Pow(_baseColor.b, DEEP_POWER));
+        Color c = Color.Lerp(deep, _baseColor * RIM_GAIN, evaluate(BRIGHTNESS_CURVE, fill));
         float noise = _colorNoise * evaluate(GRAIN_CONTRAST_CURVE, fill);
         float wallShadow = Mathf.Lerp(1f, WALL_SHADOW_AT_FULL, fill);
 

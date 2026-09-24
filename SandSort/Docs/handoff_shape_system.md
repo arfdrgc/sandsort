@@ -562,7 +562,7 @@ not just the frame, and `levelBounds` never included the frame, so this is not c
 still `Board.buildFloorVisual`'s single procedurally-textured quad.
 
 **Standing rules:** start playtests from `BaseScene.unity`; no commit until Phase 1 sign-off; every
-commit uses `--author="Baris <arfdrgc@gmail.com>"` with no Co-Authored-By line.
+commit uses `--author="Arif <arfdrgc@gmail.com>"` with no Co-Authored-By line.
 
 ### 0.16 Extraction reach — done, verified (0.14 #2)
 
@@ -1037,5 +1037,5 @@ longer needs a manual pattern resize. Steps 5, 7 and 9 below are still open and 
    WHITE 5780) and extraction are unchanged, and that no new console errors appear.
 
 **Reminders:** no commit until Phase 1 sign-off; every commit must use
-`--author="Baris <arfdrgc@gmail.com>"` with no Co-Authored-By line; start playtests from
+`--author="Arif <arfdrgc@gmail.com>"` with no Co-Authored-By line; start playtests from
 `BaseScene.unity`.

@@ -68,9 +68,10 @@ public class SandExtractionParticleEffect : MonoBehaviour {
     Dictionary<Transform, Vector3> followedTargetLastPosition = new Dictionary<Transform, Vector3>();
     Dictionary<Transform, Vector3> followedTargetDelta = new Dictionary<Transform, Vector3>();
     HashSet<uint> liveFollowedSeeds = new HashSet<uint>();
-    // Falling grains (SpawnFallingGrain) that are still above their shape's rim: seed -> rim height
-    // relative to the target, so the test moves with the shape. See LateUpdate.
-    Dictionary<uint, float> releaseLocalYBySeed = new Dictionary<uint, float>();
+    // Falling grains (SpawnFallingGrain): seed -> where the target was when this grain last moved with
+    // it (first: at spawn), so a grain only ever gets the target's movement since it was emitted. See
+    // LateUpdate.
+    Dictionary<uint, Vector3> fallingTargetPositionBySeed = new Dictionary<uint, Vector3>();
     List<uint> seedScratch = new List<uint>();
     List<Transform> targetScratch = new List<Transform>();
     ParticleSystem.Particle[] particleBuffer;
@@ -255,10 +256,10 @@ public class SandExtractionParticleEffect : MonoBehaviour {
 
     // A grain for a dragged shape (2026-09-22, ExtractionGrid): starts at a real removed cell, keeps
     // its X, falls from rest under the same particleGravity as SpawnGrain and dies at landingY. Not
-    // aimed. While it is still above rimY it moves with `intake` (the dragged shape) one-for-one, so the
-    // stream stays over the shape's opening; the frame it reaches the rim it is released and continues in
-    // world space (see LateUpdate). Drawn FollowPourForwardOffset in front of whichever is nearer the
-    // camera, the sand or the shape's plane, so it crosses both without being hidden. Lifetime is capped
+    // aimed. For its whole flight it moves with `intake` (the dragged shape) one-for-one, from its spawn
+    // on, so the stream stays over the shape's opening and every grain lands inside it (see LateUpdate;
+    // rimY is no longer used since 2026-09-24, when the release at the rim was removed). Drawn
+    // FollowPourForwardOffset in front of whichever is nearer the camera, the sand or the shape's plane, so it crosses both without being hidden. Lifetime is capped
     // by particleLifetime like every other grain (Container's completion wait relies on that cap).
     public void SpawnFallingGrain(Vector3 sourcePos, float landingY, float rimY, float planeZ, Transform intake, byte colorIndex) {
         if (systemsByColor == null || colorIndex <= 0 || colorIndex >= systemsByColor.Length) return;
@@ -287,13 +288,12 @@ public class SandExtractionParticleEffect : MonoBehaviour {
             angularVelocity3D = Random.onUnitSphere * Random.Range(CubeGrainMinSpin, CubeGrainMaxSpin),
         };
 
-        if (intake != null && start.y > rimY) {
+        if (intake != null) {
             uint seed = nextFollowSeed++;
             if (seed == 0) seed = nextFollowSeed++;
             emitParams.randomSeed = seed;
             followedTargetBySeed[seed] = intake;
-            releaseLocalYBySeed[seed] = rimY - intake.position.y;
-            if (!followedTargetLastPosition.ContainsKey(intake)) followedTargetLastPosition[intake] = intake.position;
+            fallingTargetPositionBySeed[seed] = intake.position;
         }
 
         ps.Emit(emitParams, 1);
@@ -469,14 +469,18 @@ public class SandExtractionParticleEffect : MonoBehaviour {
                 if (!followedTargetBySeed.TryGetValue(seed, out Transform target)) continue;
 
                 // A falling grain follows its shape by the FULL movement (not scaled by progress: it is
-                // not aimed at a point, it has to stay over the opening) until it reaches the rim, then
-                // is released — left out of liveFollowedSeeds, so it is forgotten below and keeps its
-                // world position and fall from here on. Gravity is never touched.
-                if (releaseLocalYBySeed.TryGetValue(seed, out float releaseLocalY)) {
-                    if (target == null || particleBuffer[i].position.y <= target.position.y + releaseLocalY) continue;
+                // not aimed at a point, it has to stay over the opening) for its whole flight, so it
+                // still lands inside the shape however the shape moves (2026-09-24: no longer released
+                // at the rim). The movement is measured from where the target was at this grain's own
+                // spawn, not from last frame, so a grain emitted after the shape already moved this
+                // frame is not pushed by that move too. Gravity is never touched.
+                if (fallingTargetPositionBySeed.TryGetValue(seed, out Vector3 followedFrom)) {
+                    if (target == null) continue;
                     liveFollowedSeeds.Add(seed);
-                    if (followedTargetDelta.TryGetValue(target, out Vector3 moved) && moved != Vector3.zero) {
-                        particleBuffer[i].position += moved;
+                    Vector3 now = target.position;
+                    if (now != followedFrom) {
+                        particleBuffer[i].position += now - followedFrom;
+                        fallingTargetPositionBySeed[seed] = now;
                         changed = true;
                     }
                     continue;
@@ -503,7 +507,7 @@ public class SandExtractionParticleEffect : MonoBehaviour {
         }
         foreach (uint seed in seedScratch) {
             followedTargetBySeed.Remove(seed);
-            releaseLocalYBySeed.Remove(seed);
+            fallingTargetPositionBySeed.Remove(seed);
         }
 
         targetScratch.Clear();

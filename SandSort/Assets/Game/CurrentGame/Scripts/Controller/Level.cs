@@ -14,6 +14,7 @@ public class Level : MonoBehaviour, ILevel {
     // simulation's own component and must stay free of gameplay concepts so SandCylinderDemo can be
     // lifted into another project on its own. See GameplayTunables' class header.
     [SerializeField] GameplayTunables _gameplayTunables;
+    public GameplayTunables gameplayTunables => _gameplayTunables;
     [SerializeField] Material _sandMaterial;
     [SerializeField] Material _cubeMaterial;
     // Only ever used to read a pixel-art PNG's colours into sand colour SLOT indices (see
@@ -65,6 +66,13 @@ public class Level : MonoBehaviour, ILevel {
     [Header("Containers")]
     [SerializeField] List<ColorSO> _containerColors = new();
 
+    // The DEFAULT Grid Block (the 1x1): spawned for a SandLevelSO.gridBlocks entry that names no
+    // prefab of its own, and what the designer's 2 key creates. See GridBlock.
+    [Header("Grid Blocks")]
+    [SerializeField] GridBlock _gridBlockPrefab;
+    // Public only so SandLevelDesigner creates and resolves Grid Blocks from the same default.
+    public GridBlock gridBlockPrefab => _gridBlockPrefab;
+
     // The three-piece modular frame kit (Docs/FRAME_KIT.md), assembled at runtime by BoardFrame so
     // the rim follows the level's real grid and sand dimensions. These are the imported FBX model
     // prefabs themselves — Board_FrameEdge / Board_FrameCorner / Board_FrameTJunction — not wrapper
@@ -95,11 +103,18 @@ public class Level : MonoBehaviour, ILevel {
     BoardFrame _boardFrame;
     readonly List<Container> _containers = new();
 
-    // Timer: waits for the first Container drag, pauses while Settings is open, stops on Win/Lose.
+    // Timer: waits for the first Container drag (or the press ending a booster tutorial), pauses while
+    // Settings is open or Freeze Time holds it,
+    // stops on Win/Lose.
     // A restart builds a fresh Level, so all of this starts over from initialize().
     float _timeRemaining;
     bool _timerStarted;
     bool _timerPaused;
+    // Freeze Time (PowerUp_1) holds the timer from its tap until the freeze ends. Kept apart from
+    // _timerPaused: it does NOT lock input, and closing Settings must not end it.
+    bool _timerFrozen;
+    // A booster tutorial (UIBoosterTutorial) is on screen: gameplay input is locked until it ends.
+    bool _tutorialLocked;
     int _lastDispatchedSeconds = -1;
     bool _resolved;
     // Won (all sealed, _resolved already set) but LEVEL_OBJECTIVE_COMPLETE not sent yet: it goes out
@@ -135,10 +150,12 @@ public class Level : MonoBehaviour, ILevel {
         buildBoard(sandLevel);
         // After both, because the frame is measured FROM the sand quad and the board floor; before
         // computeFramingBounds only so the hierarchy reads top-down. The frame is deliberately NOT
-        // part of the camera bounds: it adds 0.19 outside the sand/floor rectangle, well inside
+        // part of the camera bounds: it adds BoardFrame.BORDER_WIDTH outside the sand/floor rectangle, well inside
         // CAMERA_PADDING's 0.7, so it is always visible without moving the framing that was found by
         // hand in Play.
         buildBoardFrame();
+        // Before the Containers, so the blocked cells are on the Board before any piece can move.
+        buildGridBlocks(sandLevel);
         buildContainers(sandLevel);
 
         _cameraBounds = computeFramingBounds();
@@ -147,6 +164,8 @@ public class Level : MonoBehaviour, ILevel {
         _timeRemaining = sandLevel.timerSeconds;
         _timerStarted = false;
         _timerPaused = false;
+        _timerFrozen = false;
+        _tutorialLocked = false;
         _resolved = false;
         _winPending = false;
         dispatchTimer();
@@ -343,12 +362,50 @@ public class Level : MonoBehaviour, ILevel {
         this.addListener<object>(Events.UI_OPEN_SETTINGS, onSettingsOpened);
         this.addListener<object>(Events.UI_CLOSE_SETTINGS, onSettingsClosed);
         this.addListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
+        this.addListener<object>(Events.POWER_UP_1_ACTIVATED, onFreezeTimeStarted);
+        this.addListener<object>(Events.POWER_UP_1_DEACTIVATED, onFreezeTimeEnded);
+        this.addListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_STARTED, onBoosterTutorialStarted);
+        this.addListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_COMPLETED, onBoosterTutorialCompleted);
+        this.addListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_CANCELLED, onBoosterTutorialCancelled);
     }
 
     void OnDisable() {
         this.removeListener<object>(Events.UI_OPEN_SETTINGS, onSettingsOpened);
         this.removeListener<object>(Events.UI_CLOSE_SETTINGS, onSettingsClosed);
         this.removeListener<object>(Events.UI_REVIVE_CLICKED, onReviveClicked);
+        this.removeListener<object>(Events.POWER_UP_1_ACTIVATED, onFreezeTimeStarted);
+        this.removeListener<object>(Events.POWER_UP_1_DEACTIVATED, onFreezeTimeEnded);
+        this.removeListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_STARTED, onBoosterTutorialStarted);
+        this.removeListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_COMPLETED, onBoosterTutorialCompleted);
+        this.removeListener<PowerUpSO>(Events.BOOSTER_TUTORIAL_CANCELLED, onBoosterTutorialCancelled);
+    }
+
+    // Whether Freeze Time may start (or, after its activation, become active): only once the timer is
+    // running and the level is not won or lost. A won level is locked in before LEVEL_OBJECTIVE_COMPLETE
+    // goes out, so PowerUp_1 has to ask here rather than wait for that event.
+    public bool canFreezeTimer => _timerStarted && !_resolved;
+
+    void onFreezeTimeStarted(Object sender, Event<object> e) => _timerFrozen = true;
+
+    void onFreezeTimeEnded(Object sender, Event<object> e) => _timerFrozen = false;
+
+    void onBoosterTutorialStarted(Object sender, Event<PowerUpSO> e) {
+        _tutorialLocked = true;
+        refreshInputLock();
+    }
+
+    // The tutorial ends on the press of the highlighted booster, just before that press is handled.
+    // The press counts as the level starting, like a first drag, so a booster that needs a running
+    // level (Freeze Time) goes through its normal activation.
+    void onBoosterTutorialCompleted(Object sender, Event<PowerUpSO> e) {
+        _tutorialLocked = false;
+        refreshInputLock();
+        startTimer();
+    }
+
+    void onBoosterTutorialCancelled(Object sender, Event<PowerUpSO> e) {
+        _tutorialLocked = false;
+        refreshInputLock();
     }
 
     void onSettingsOpened(Object sender, Event<object> e) {
@@ -649,6 +706,45 @@ public class Level : MonoBehaviour, ILevel {
         }
     }
 
+    // One fixed GridBlock per SandLevelSO.gridBlocks entry: its prefab (the Level's default 1x1 when
+    // the entry names none) at its position and rotation, cells from GridBlockData.occupiedCells. An
+    // entry with any cell off the Board or already blocked is skipped; one sharing a cell with a
+    // Container is built but reported, since the level is then unplayable as authored (the
+    // designer's Save refuses all three cases).
+    void buildGridBlocks(SandLevelSO sandLevel) {
+        foreach (GridBlockData data in sandLevel.gridBlocks) {
+            GridBlock prefab = data.block != null ? data.block : _gridBlockPrefab;
+            if (prefab == null) {
+                Debug.LogError($"[Level::buildGridBlocks] Grid Block at {data.position} names no prefab and the Level prefab has no default Grid Block — skipped.");
+                continue;
+            }
+
+            Vector2Int anchor = data.position;
+            List<Vector2Int> cells = data.occupiedCells;
+            if (!_board.isInBounds(anchor, cells)) {
+                Debug.LogError($"[Level::buildGridBlocks] Grid Block {prefab.shape.type} at {anchor} sticks out of the {_board.size} Board — skipped.");
+                continue;
+            }
+            bool stacked = false;
+            foreach (Vector2Int offset in cells) stacked |= _board.isBlocked(anchor + offset);
+            if (stacked) {
+                Debug.LogError($"[Level::buildGridBlocks] Grid Block {prefab.shape.type} at {anchor} overlaps another Grid Block — skipped.");
+                continue;
+            }
+            foreach (ContainerData container in sandLevel.containers) {
+                foreach (Vector2Int offset in cells) {
+                    if (!container.occupiedCells.Contains(anchor + offset - container.position)) continue;
+                    Debug.LogError($"[Level::buildGridBlocks] Grid Block {prefab.shape.type} at {anchor} overlaps the {container.color} container at {container.position}.");
+                    break;
+                }
+            }
+
+            GridBlock block = Instantiate(prefab, _board.transform, false);
+            block.name = $"GridBlock_{prefab.shape.type}_{data.rotation}_{anchor.x}_{anchor.y}";
+            block.initialize(_board, anchor, data.rotation);
+        }
+    }
+
     // Public only so SandLevelDesigner can draw its previews in the same colour as the real pieces.
     public Material containerMaterialOf(ColorSO.ItemColor color) {
         foreach (ColorSO colorSO in _containerColors) {
@@ -728,18 +824,24 @@ public class Level : MonoBehaviour, ILevel {
         if (!_timerStarted) {
             foreach (Container container in _containers) {
                 if (container.isDragging) {
-                    _timerStarted = true;
-                    // Once per Level instance: the moment the level really starts (UIRestart waits for it).
-                    this.dispatchEvent<object>(Events.LEVEL_FIRST_DRAG, null);
+                    startTimer();
                     break;
                 }
             }
         }
 
-        if (_timerStarted && !_timerPaused) {
+        if (_timerStarted && !_timerPaused && !_timerFrozen) {
             _timeRemaining = Mathf.Max(0f, _timeRemaining - Time.deltaTime);
             dispatchTimer();
         }
+    }
+
+    // The level really starts: on the first drag, or on the press that ends a booster tutorial.
+    void startTimer() {
+        if (_timerStarted) return;
+        _timerStarted = true;
+        // Once per Level instance: the moment the level really starts (UIRestart waits for it).
+        this.dispatchEvent<object>(Events.LEVEL_FIRST_DRAG, null);
     }
 
     // Whole seconds, rounded up so the display only reads 00:00 when time has actually run out.
@@ -764,9 +866,10 @@ public class Level : MonoBehaviour, ILevel {
         foreach (Container container in _containers) container.setInputLocked(locked);
     }
 
-    // Gameplay (drag + extraction) is frozen while the level is resolved OR Settings is open. Recomputed
-    // from both, so closing Settings never unlocks a lost/won level and a revive never unlocks behind Settings.
-    void refreshInputLock() => setInputLocked(_resolved || _timerPaused);
+    // Gameplay (drag + extraction) is frozen while the level is resolved, Settings is open OR a booster
+    // tutorial is on screen. Recomputed from all of them, so closing Settings never unlocks a lost/won
+    // level and a revive never unlocks behind Settings.
+    void refreshInputLock() => setInputLocked(_resolved || _timerPaused || _tutorialLocked);
 
     bool allCompleteExitsFinished() {
         foreach (Container container in _containers) {

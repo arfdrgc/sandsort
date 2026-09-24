@@ -28,7 +28,6 @@ public class GameManager : BaseSingleton<GameManager> {
 
     private void onNextLevelClick(UnityEngine.Object sender, Event<object> eventData) {
         this.dispatchEvent<object>(Events.LEVEL_COMPLETED, null);
-        MusicPlayer.instance.continueMusic();
         _dataSO.level += 1;
         _dataSO.levelAttemptCount = 0;
         Database.SaveGame();

@@ -82,6 +82,7 @@ namespace MoowCore {
             ItemSaveData saveData = _items.Find(x => x.id == id);
             if(saveData != null) {
                 saveData.value = value;
+                Database.SaveGame();
             } else {
                 Debug.Log("ItemSaveData Not Found for setItemCount");
             }
@@ -91,6 +92,7 @@ namespace MoowCore {
             ItemSaveData saveData = _items.Find(x => x.id == id);
             if(saveData != null) {
                 saveData.isShowed = true;
+                Database.SaveGame();
             } else {
                 Debug.Log("ItemSaveData Not Found for setItemShowed");
             }
@@ -102,6 +104,7 @@ namespace MoowCore {
             if (saveData != null)
             {
                 saveData.value += value;
+                Database.SaveGame();
             }
             else
             {

@@ -17,7 +17,7 @@ MonoBehaviour:
   _releaseSnapSharpness: 22
   _releaseSnapMinSpeedCells: 4
   _extractionArrivalToleranceCells: 0.035
-  _gridSandGapCells: 0.22352941
+  _gridSandGapCells: 0.17882353
   _selectedOutlineMaterial: {fileID: 2100000, guid: ce903621e47ce40fa8653caa9b8e20b1, type: 2}
   _selectedOutlineMaskMaterial: {fileID: 2100000, guid: 8c5df83cd537844aea8d7b76084ffb25, type: 2}
   _shapeCompleteParticleWaitMultiplier: 0.2
@@ -26,7 +26,7 @@ MonoBehaviour:
   _completeScaleOutDuration: 0.18
   _completeEffectPrefab: {fileID: 164832, guid: cc4edba986607ba48b17927b27d25e4e, type: 3}
   _completeEffectScale: 0.45
-  _sandFillEdgeDarken: 0.233
+  _sandFillEdgeDarken: 0.1
   _sandFillColorNoiseAmount: 0.221
   _sandFillDepthAmount: 0
   _shapeMaskMaterial: {fileID: 2100000, guid: 8c9e9e09dfe8c44839569e6796a4f8c2, type: 2}

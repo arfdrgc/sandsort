@@ -3,7 +3,157 @@
 Rolling status file. Read this first when resuming work; it records where things
 actually stand, not what was planned. Design specs live in `Docs/`.
 
-**Last updated:** 2026-09-22 (Sand Level Designer session note; extraction-driven 3D cube grains)
+**Last updated:** 2026-09-24 (Freeze Time booster, Step 1)
+
+---
+
+## Edge collapse (sand drainage at block edges) — 2026-09-24 — in code, uncommitted
+
+- **Cause (measured):** a hole rising just under a face/crater wall has only one eligible diagonal (the
+  other side is air), so v0 sends it straight up the face column with chance 1 - flowSpread. A face then
+  only sheds from exposed step tops (flux ~ step-1, ~0 near 45°) and translates instead of slumping:
+  during a drain the wall beside the mouth stands at 60–75° and relaxes over many seconds (live Level 6,
+  white container at the right wall: face still 58° 8 s after the drain stalled). Not the cause (no
+  effect on the edge lag): passes/frame 2→4, slideChance 1, 2 grains/column/call extraction.
+- **Change:** new tunable `edgeCollapse` (default 1, Level.prefab has no entry → 1), used only in
+  `ChooseSource`'s up-branch: when exactly one diagonal is eligible AND the other diagonal cell is in the
+  grid and EMPTY, the diagonal chance is flowSpread + edgeCollapse·(1 − flowSpread). Two-sided holes,
+  grid outer walls, colour, tint, extraction and the rest shape are untouched. `edgeCollapse` 0 is
+  byte-identical to v0 (5 scenarios × 400 frames, 0 differing cells).
+- **Measured (204×204, 27 cells/frame mouth, 2 passes/frame):** free collapse of a vertical 150-row
+  cliff 1424 → 850 frames, 3 rows/col face 1419 → 857; drain end partial 1361 → 863, edges-heavy
+  1337 → 829; 15000 cells: 2-wide at wall 1506 → 998, straddling two blocks 1207 → 820; the ~75°
+  chimney over a full-height block becomes a ~45–50° crater. Live Level 6 (BaseScene): steepest face
+  −25% at every checkpoint, upper sand comes down first, same extraction rate. Rest shape identical.
+- **Rejected on the way:** equal per-side wander (worse), wander only toward surface grains (slower
+  drain), buried-face friction (slower). The edge band metric (time for the outer 6 columns to reach
+  the mouth) barely moves: that band is the toe of outside sand still flowing in, paced by the budget.
+- Open: hand-play feel; device cost (one extra cell read per one-sided hole, expected negligible).
+
+---
+
+## Freeze Time booster (PUT_1) — 2026-09-24 — Step 1 (wiring + logic) in code, uncommitted
+
+- Flow: tap → level timer stops at once (`POWER_UP_1_ACTIVATED`) → activation wait
+  (`GameplayTunables.freezeTimeActivationSeconds` 1.8, the slot for the Step 4 animation) → booster
+  consumed (`used()` → `POWER_UP_USED`) → 10 s countdown (`freezeTimeSeconds`),
+  `FREEZE_TIME_CHANGED(float)` every frame → at 0 `POWER_UP_1_DEACTIVATED`, timer resumes.
+- `PowerUp_1.cs` owns the booster state (DEACTIVE/ANIMATING/ACTIVE); `Level._timerFrozen` (separate
+  from `_timerPaused`, no input lock) + `Level.canFreezeTimer` (timer started, not won/lost). Both
+  phases run on `Time.deltaTime` and stand still while Settings is open. Win / lose / retry /
+  level load end it; an activation cut short is never consumed. No stacking; the PUT_1 button is
+  non-interactable from tap to end (`UIPowerUpButton`, listeners in Awake so hidden buttons still hear it).
+- `PowerUpManager` added to GameScene `---Managers` (it was in no scene before, so no booster button
+  did anything). Only PUT_1 is handled; PUT_2–4 are deliberate no-ops. Old dock event + PUT_1 whoosh removed.
+- Play-tested from BaseScene (level 6; drag/moves via reflection on Container, screen was locked):
+  pre-first-drag refused, activation 1.8 s, consume on ACTIVE, freeze 10.0 s with the timer held,
+  repeat press refused (ANIMATING + ACTIVE), drag + extraction continue during freeze, Settings
+  pauses both phases, win during ANIMATING (no charge) and ACTIVE, restart during ANIMATING (no
+  charge) and ACTIVE, next level, 0 copies + low gold → "Not Enough Gold".
+- Step 3 (Freeze HUD) — DONE, uncommitted: `UIFreezeTimeHUD` (CurrentGame/Scripts/UI) on GameScene
+  `UIGameScene/FreezeTimeHUD` (first child: `IceFrame` + `Snow`), plus `LevelTimeArea/FrozenSkin`
+  (Button_Blue icy pill over the normal one) and `LevelTimerContainer/FreezeCountdown` (❄ + "10s" +
+  draining bar). Shown on the first `FREEZE_TIME_CHANGED`, faded out (0.4 s) on `POWER_UP_1_DEACTIVATED`,
+  snapped hidden on `LEVEL_LOADED`. `UILevelTimer` holds the red ≤10 s warning off while frozen.
+  Reused: Button_Blue, roundedCircle300, MikadoBlack Ice.mat, Epic Toon snowflake.png + snowflake_AB.mat,
+  UI Extensions `UIParticleSystem`. **Placeholder art:** `Sprites/Boosters/FreezeTime_IceFrame_PLACEHOLDER.png`
+  (generated), and the pill/countdown/snowflake are stand-ins from existing sprites. Play-tested from
+  BaseScene: show/update/fade, Settings hold, warning suppression, lose, restart (instant hide), win, next level.
+- Step 4 (activation animation) — DONE, uncommitted: `UIFreezeTimeActivation` on GameScene
+  `UIGameScene/FreezeTimeActivation` (last child: dim, frost trail, flying PowerUpSO icon, ice burst).
+  Follows PowerUp_1 (starts on ACTIVATED, pauses with Settings, bursts on the first FREEZE_TIME_CHANGED).
+  UIParticleSystem one-shots are fed with `Emit()` — scheduled emission bursts never fire under it.
+- Step 5 (audio + haptics) — DONE, uncommitted, existing assets only: accepted tap → WHOOSH_SHORT_1 +
+  Light (UIFreezeTimeActivation.play); burst/active → ICE_CRACK + Medium (burst); natural end (last
+  value 0) → WATER_DROP_1 + Soft (UIFreezeTimeHUD). Cut-short freezes end silently. PowerUpManager no
+  longer fires a haptic before PowerUp_1 accepts the press. `IcePowerUp2.mp3` stays unused (no AudioSO).
+  Don't `AudioPlayer.StopSFX` a finished one-shot: AudioSO.source is a pooled source that may already
+  play another sound (and `AudioPlayer.IsPlaying` gives false positives for the same reason).
+- Step 6 (visual polish, existing assets only) — DONE, uncommitted: icon hold 1.45x / arrival 0.9x,
+  rise-hold-flight 0.54/0.86/0.40 s with ease-in (same 1.8 s), trail emits only while the icon moves,
+  denser bluer mist + larger ❄ flakes, burst flash 2x + bigger puff cloud + more shards, ice frame
+  thicker (ppu x0.7) + bluer tint, Snow moved OUT of the frame's CanvasGroup so flakes outlive the
+  frame, end fade 0.55 s ease-in. Still placeholder: ice frame texture, Button_Blue pill, the round
+  snow_AB mist (reads as puffs, not wisps), and the PUT_1 icon (red ✕; no clock icon exists in the project).
+- Final art hooked up (2026-09-24): `booster_freeze_time_icon` (PowerUp_1.asset → button + flying icon),
+  `Icy_timer_UI_pill_design` on FrozenSkin (sprite rect trimmed to drop a white line baked into the PNG's
+  bottom rows; Multiple mode, one sprite). Ice frame is still the generated placeholder, by request.
+- Trail revised (2026-09-24): the `Magical_frost_trail_effect` texture trail (read as fabric pieces)
+  and its material are gone; TrailMist removed. The trail is TrailFlakes only (snowflake_AB): sizes
+  0.11–0.42, random white → light cyan → icy blue, circle spread (r 0.26) + light noise, shrink + fade
+  over 0.25–0.5 s, emitted by distance (30/unit) + 30/s so it stays dense right behind the accelerating
+  icon. Emits while the icon moves (button → hold, hold → timer), never during the hold. A glow layer was tried (glow4_ADD,
+  snow_AB) and dropped: it read as muddy rays / grey orbs. The texture file itself is still in
+  `Sprites/Boosters/`, unreferenced.
+- Next (old note): The PUT_1 button
+  icon (`PowerUp_1.asset` sprite) is a red ✕ and needs the real Freeze Time icon.
+- Fixed (2026-09-24): free power-up copies were not persisted. `InventoryDataSO.setItemCount` /
+  `increaseItemCount` / `setItemShowed` now call `Database.SaveGame()` like the gold `increase` /
+  `decrease` already did, so every item change (all PUT_x free copies + the tutorial "showed" flag)
+  is written at the end of that frame. Verified: 3 → 2 on use, still 2 after a Play restart.
+
+---
+
+## Booster unlock + usage tutorial (all 4 boosters) — 2026-09-24 — in code, uncommitted
+
+- Trigger: on LEVEL_LOADED, the first booster whose `PowerUpSO.unlockLevel` == this level and whose
+  inventory item is not `isShowed` (no hard-coded levels). Waits for a Feature Unlock popup first.
+- `UIBoosterTutorial` (GameScene `UIGameScene/BoosterTutorial`, before MechanicUnlockedPopup): shows
+  the Feature Unlock popup (`UIMechanicUnlockedPopup.show`, refactored; mechanic path unchanged) with
+  "New Booster Unlocked", icon, `popupTitle` + `popupText`; on its tap fades `Overlay` (black, alpha 0.9
+  in the Inspector ≈ 70% darker on screen in linear space) in and lifts the booster button above it
+  (`UIPowerUpButton.setTutorialFocus`: override-sorted Canvas + raycaster, existing HandPoint gliding in).
+- Press: the button sends BOOSTER_TUTORIAL_COMPLETED before UI_POWER_UP_PRESSED → marked shown
+  (`setItemShowed`, saved), overlay fades out, and Level starts the level (like a first drag, decided
+  2026-09-24) so Freeze Time goes through its normal activation.
+- Level locks gameplay input from BOOSTER_TUTORIAL_STARTED to COMPLETED/CANCELLED. Level load, retry,
+  win or lose cancel it on the spot; not marked shown, so it comes back.
+- Removed the reference game's legacy path in UIPowerUpButton (MECHANIC_UNLOCK_CLOSED → hand +
+  setItemShowed; ON_POWER_UP_TUTORIAL_READY was never sent).
+- PowerUp_2–4 still carry reference-game popup text/icons (e.g. "PICK FISH BOX", red ✕).
+
+## Grid Block (fixed obstacle, 13 shapes) — 2026-09-24 — in code, uncommitted
+
+- Data: `SandLevelSO._gridBlocks` (`List<GridBlockData { position, block, rotation }>`), separate
+  from `_containers`. `block` = a Grid Block prefab; EMPTY = the Level's default 1x1 (old entries
+  saved before shapes load unchanged). `GridBlockData.occupiedCells` = `Shape.rotatedCells`.
+- Prefabs: `Prefabs/GridBlocks/GridBlock_<Shape>.prefab`, 13 of them (1x1 is the old
+  `GridBlock.prefab`, moved, same GUID; `Level._gridBlockPrefab` still points at it). Each = the
+  Shape prefab minus FillUIAnchor, with `Shape` (cells / rotation / VisualRoot — reused, not
+  duplicated) + `GridBlock`. FBX at Y 0 (closed top to camera, Shapes use Y 180) and local z -0.5;
+  the 12 multi-cell ones also localScale.x = -1, because their meshes are authored toward -X and
+  Y 0 alone would mirror them off their cells. Verified: 52/52 shape x rotation drawn footprints
+  match occupiedCells (MeshCollider raycasts per cell).
+- Material (2026-09-24): ONE shared `Materials/GridBlock_BrickWall.mat` on all 13 prefabs, shader
+  `Shaders/GridBlockBrickWall.shader` = URP Simple Lit copied verbatim with only the ForwardLit /
+  GBuffer fragment UV replaced (`Shaders/GridBlockWorldUV.hlsl`): world-space planar UV (front XY,
+  sides ZY / XZ) measured from `_GridBlockOrigin` = the Grid Block ROOT position, set per renderer
+  by `GridBlock` via MaterialPropertyBlock (initialize + LateUpdate on transform.hasChanged, which
+  also covers designer drags). So bricks are horizontal on every shape at 0/90/180/270 independent
+  of the FBX UVs, each block has its own pattern that moves with it, and density is uniform.
+  `_BaseMap` tiling = repeats per world unit = 0.676 (the old 1x1's density); texture / colour /
+  spec copied from `Shape_1x1_BrickWall` (left in place, no longer used by Grid Blocks). The shader
+  is SRP-Batcher-incompatible because of the per-renderer origin (fine for a few blocks). On a URP
+  upgrade, re-copy SimpleLit.shader and re-apply the edits marked "GridBlock". Verified Level 9, all
+  13 shapes x 4 rotations (screenshots); designer previews use it, red tint + origin-follow work.
+  The per-shape tiling variants and the world-UV prototype were deleted.
+- Gameplay: `Level.buildGridBlocks` (before `buildContainers`) spawns `data.block ?? default`;
+  `GridBlock.initialize(board, anchor, rotation)` -> `Shape.applyRotation` + `Board.block` per
+  occupied cell (separate `_blocked` mask, never freed). `Board.isAreaFree` refuses blocked cells;
+  `Container.gatherBlockedCells` adds them to the drag sweep (only Container change).
+- Designer: block Entry = ContainerData with `shape` = the block prefab's Shape, so R (`rotate`) and
+  Q (`nextShape`, cycling `_gridBlockPool` instead of `_shapePool`) are the Shapes' own code. `2`
+  creates the default 1x1, drag moves, Delete/Backspace removes, C logs "no colour". Same overlap /
+  off-board validation and Save refusal as Shapes. Save writes block + position + rotation.
+  `_gridBlockPool` is filled in GameScene by the existing "Fill Shape Pool From Project" menu.
+- Verified in Play from BaseScene (Arif_Level_6; test saves reverted afterwards): real OS key /
+  mouse events for F2 / 2 / drag / Backspace / S / L (1x1 era) and F2 + `2` again with shapes; Q x2
+  (1x1 -> 2x1 -> 3x1), R (off-board -> red, Save refused, asset untouched), drag to a valid cell,
+  L3 via Q, Save, Play restart -> both blocks rebuilt with exact cells blocked and Containers stop
+  flush against them — these by calling the same methods the keys call, because the macOS screen
+  locked mid-test (twice). Q / R by real key presses is still unverified.
+- Open: no level ships with Grid Blocks yet; `validateLevel` does not check block overlap (Level
+  logs it at build, designer Save refuses it).
 
 ---
 

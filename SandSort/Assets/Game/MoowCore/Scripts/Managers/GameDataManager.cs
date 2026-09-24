@@ -14,6 +14,8 @@ public class GameDataManager : BaseSingleton<GameDataManager> {
 
     void onLevelLoaded(Object sender, Event<object> e) => _reviveCount = 0;
 
+    public bool boostersEnabled => _gameDataSO.boostersEnabled;
+    public bool coinsEnabled => _gameDataSO.coinsEnabled;
     public float comboDuration => _gameDataSO.comboDuration;
     public float skipItemIfNotRequiredPercent => _gameDataSO.skipItemIfNotRequiredPercent;
     public int currentReviveCost => _gameDataSO.getReviveCost(_reviveCount);

@@ -16,6 +16,15 @@ namespace MoowCore {
 
         [SerializeField] UIGoldContainer _gameSceneGoldContainer;
 
+        [Header("Continue button coin content (hidden when coins are off)")]
+        [SerializeField] RectTransform _continueText;
+        [SerializeField] GameObject _continueAmount;
+        [SerializeField] GameObject _continueCoinIcon;
+
+        // ContinueText's authored anchors (above the amount), captured before it is ever moved.
+        Vector2 _continueTextAnchorMin, _continueTextAnchorMax;
+        bool _continueTextAnchorsStored;
+
         private float multiplyScoreNum;
         [SerializeField] Animator multiplyScoreAnimator;
 
@@ -60,10 +69,11 @@ namespace MoowCore {
 
 
         public override void show(Object data) {
-            MusicPlayer.instance.lowerMusic();
+            MusicPlayer.instance.pauseMusic();
             AudioPlayer.instance.playSFX(AudioFX.POSITIVE_1);
             base.show(data);
             SetDefault();
+            applyCoinLayout(GameDataManager.instance.coinsEnabled);
             _rewardClaimed = false;
 
             banner.transform.localScale = Vector3.zero;
@@ -79,7 +89,8 @@ namespace MoowCore {
             banner.transform.DOLocalMoveY(650, 0.5f).SetEase(Ease.OutBack).SetDelay(1f).OnComplete(() => {
             _mechanicProgress.show(0, () => {
 
-                    if (LevelManager.instance.level == 1)
+                    // Coins off: Continue only, like level 1 (no multiplier, no double reward).
+                    if (LevelManager.instance.level == 1 || !GameDataManager.instance.coinsEnabled)
                     {
                         _claimButton.gameObject.SetActive(true);
                         _claimButtonCanvasGroup.DOFade(1, 0.3f).From(0);
@@ -110,6 +121,27 @@ namespace MoowCore {
             base.hide(duration, initialize);
         }
 
+        // Coins off (GameDataSO.coinsEnabled): Continue loses its coin amount and icon, and its label
+        // moves to the button's vertical middle (same size). Coins on: the authored layout.
+        void applyCoinLayout(bool coinsEnabled) {
+            if (!_continueTextAnchorsStored) {
+                _continueTextAnchorMin = _continueText.anchorMin;
+                _continueTextAnchorMax = _continueText.anchorMax;
+                _continueTextAnchorsStored = true;
+            }
+
+            _continueAmount.SetActive(coinsEnabled);
+            _continueCoinIcon.SetActive(coinsEnabled);
+            if (coinsEnabled) {
+                _continueText.anchorMin = _continueTextAnchorMin;
+                _continueText.anchorMax = _continueTextAnchorMax;
+            } else {
+                float halfHeight = (_continueTextAnchorMax.y - _continueTextAnchorMin.y) * 0.5f;
+                _continueText.anchorMin = new Vector2(_continueTextAnchorMin.x, 0.5f - halfHeight);
+                _continueText.anchorMax = new Vector2(_continueTextAnchorMax.x, 0.5f + halfHeight);
+            }
+        }
+
         private void onClaimClick() {
             if (_rewardClaimed) return;
             AudioPlayer.PlaySFX(AudioFX.UI_BUTTON_CLICK);
@@ -125,9 +157,12 @@ namespace MoowCore {
             _claimButton.interactable = false;
             _doubleButton.interactable = false;
 
-            int amount = Mathf.RoundToInt(value);
-            this.dispatchEvent<int>(Events.GIVE_COIN_ANIMATION, amount);
-            InventoryManager.instance.increase(amount);
+            // Coins off (GameDataSO.coinsEnabled): no coins are earned and no coin burst plays.
+            if (GameDataManager.instance.coinsEnabled) {
+                int amount = Mathf.RoundToInt(value);
+                this.dispatchEvent<int>(Events.GIVE_COIN_ANIMATION, amount);
+                InventoryManager.instance.increase(amount);
+            }
             this.dispatchEvent<object>(Events.UI_NEXT_LEVEL_CLICK, null);
         }
 
