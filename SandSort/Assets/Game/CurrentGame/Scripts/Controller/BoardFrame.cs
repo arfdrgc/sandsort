@@ -55,6 +55,28 @@ public class BoardFrame : MonoBehaviour {
     // is exactly the kit's pivot convention.
     static readonly Quaternion FBX_TO_BOARD = Quaternion.Euler(0f, 180f, 0f);
 
+    // FACE FLIP (user's call, 2026-09-24): the kit's authored top face (the one with the 0.02 bevel)
+    // is the wrong side to show; its flat bottom face is cleaner. Fixed here at runtime — the FBXs and
+    // the .blend are left untouched — by turning every piece 180 degrees so its bottom faces the
+    // camera. Each flip is a PROPER rotation (det +1, no mirror, see FBX_TO_BOARD on why that matters)
+    // about the piece's own in-plane symmetry axis, so its footprint lands back on itself; the
+    // matching FLIP_OFFSET moves the rotated piece back onto its kit pivot and puts its back face on
+    // BACK_PLANE_Z again. Offsets are in the kit's own units (before scale) and in board space
+    // (after FBX_TO_BOARD). Symmetry was checked against the .blend's vertex positions in-plane.
+    //  - Edge: about its length axis (X). y -> -y, so it shifts back by one border width.
+    //  - Corner: about the x = y diagonal. x <-> y, so no in-plane shift.
+    //  - T-junction: about its stem axis (Y). x -> -x, so it shifts forward by one border width.
+    // FRAME_KIT: every piece is 0.25 tall (Z = 0 is its base).
+    const float KIT_HEIGHT = 0.25f;
+    // FRAME_KIT's 0.19 border width as authored, i.e. before FRAME_THIN.
+    const float KIT_BORDER_WIDTH = BORDER_WIDTH / FRAME_THIN;
+    static readonly Quaternion EDGE_FLIP = Quaternion.Euler(180f, 0f, 0f);
+    static readonly Quaternion CORNER_FLIP = Quaternion.AngleAxis(180f, new Vector3(1f, 1f, 0f));
+    static readonly Quaternion T_JUNCTION_FLIP = Quaternion.Euler(0f, 180f, 0f);
+    static readonly Vector3 EDGE_FLIP_OFFSET = new Vector3(0f, -KIT_BORDER_WIDTH, -KIT_HEIGHT);
+    static readonly Vector3 CORNER_FLIP_OFFSET = new Vector3(0f, 0f, -KIT_HEIGHT);
+    static readonly Vector3 T_JUNCTION_FLIP_OFFSET = new Vector3(KIT_BORDER_WIDTH, 0f, -KIT_HEIGHT);
+
     static readonly int BASE_COLOR_ID = Shader.PropertyToID("_BaseColor");
     static readonly int COLOR_ID = Shader.PropertyToID("_Color");
 
@@ -211,13 +233,26 @@ public class BoardFrame : MonoBehaviour {
         GameObject piece = Instantiate(prefab, transform);
         piece.name = name;
         Transform t = piece.transform;
-        t.localPosition = new Vector3(x, y, BACK_PLANE_Z);
-        // Z first, then the FBX conversion — the same order Shape_*.prefab uses (VisualRoot carries
-        // the board-space rotation, the FBX instance under it carries the conversion).
-        t.localRotation = Quaternion.Euler(0f, 0f, rotationZ) * FBX_TO_BOARD;
+        Quaternion boardRotation = Quaternion.Euler(0f, 0f, rotationZ);
+        getFaceFlip(prefab, out Quaternion flip, out Vector3 flipOffset);
         t.localScale = new Vector3(scaleAlongLength, FRAME_THIN, 1f);
+        // The offset scales with the piece (each flip maps every axis onto itself or swaps two equally
+        // scaled ones, so the scale still lands on the axes it did before) and turns with it.
+        t.localPosition = new Vector3(x, y, BACK_PLANE_Z) + boardRotation * Vector3.Scale(flipOffset, t.localScale);
+        // Z first, then the face flip, then the FBX conversion — the same order Shape_*.prefab uses
+        // (VisualRoot carries the board-space rotation, the FBX instance under it carries the conversion).
+        t.localRotation = boardRotation * flip * FBX_TO_BOARD;
         if (_frameMaterial != null) {
             foreach (MeshRenderer renderer in piece.GetComponentsInChildren<MeshRenderer>(true)) renderer.sharedMaterial = _frameMaterial;
         }
+    }
+
+    // The FACE FLIP for one of the three kit pieces; anything else is placed as authored.
+    void getFaceFlip(GameObject prefab, out Quaternion flip, out Vector3 offset) {
+        if (prefab == _edgePrefab) { flip = EDGE_FLIP; offset = EDGE_FLIP_OFFSET; return; }
+        if (prefab == _cornerPrefab) { flip = CORNER_FLIP; offset = CORNER_FLIP_OFFSET; return; }
+        if (prefab == _tJunctionPrefab) { flip = T_JUNCTION_FLIP; offset = T_JUNCTION_FLIP_OFFSET; return; }
+        flip = Quaternion.identity;
+        offset = Vector3.zero;
     }
 }

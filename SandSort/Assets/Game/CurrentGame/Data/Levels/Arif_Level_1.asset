@@ -35,4 +35,4 @@ MonoBehaviour:
   _gridBlocks: []
   _sandTexture: {fileID: 2800000, guid: 5bbadedf245894c5ba4c0532136d6995, type: 3}
   _sandPattern: {fileID: 0}
-  _timerSeconds: 5
+  _timerSeconds: 300
