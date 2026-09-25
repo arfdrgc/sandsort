@@ -568,14 +568,18 @@ public class SandCylinderSandGrid : MonoBehaviour {
     // top eligible row comes from MouthRowLimit (45° from the contact edges).
     // Support rule, colour match, one grain per column per call and the random
     // start column are unchanged.
-    public int ExtractAtMouth(int xStart, int xEnd, byte colorIndex, int maxCells, int contactStart, int contactEnd, List<Vector2Int> removedCellsOut = null) {
+    //
+    // ignoreMouthRows (gameplay's final-shape rule, see ExtractionGrid): the
+    // row window is the whole column height with no 45° trim. Columns, colour
+    // match, support rule and everything else are unchanged.
+    public int ExtractAtMouth(int xStart, int xEnd, byte colorIndex, int maxCells, int contactStart, int contactEnd, List<Vector2Int> removedCellsOut = null, bool ignoreMouthRows = false) {
         if (maxCells <= 0 || colorIndex == EMPTY) return 0;
         contactStart = Mathf.Clamp(contactStart, 0, width);
         contactEnd = Mathf.Clamp(contactEnd, 0, width);
         xStart = Mathf.Max(Mathf.Clamp(xStart, 0, width - 1), contactStart);
         xEnd = Mathf.Min(Mathf.Clamp(xEnd, xStart + 1, width), contactEnd);
         if (xEnd <= xStart) return 0;
-        int mouthRows = Mathf.Clamp(tunables.extractionMouthRows, 1, height);
+        int mouthRows = ignoreMouthRows ? height : Mathf.Clamp(tunables.extractionMouthRows, 1, height);
         int span = xEnd - xStart;
         int startOffset = Mathf.Min((int)(NextPhysicsRandom() * span), span - 1);
 
@@ -591,7 +595,7 @@ public class SandCylinderSandGrid : MonoBehaviour {
                 int i = (startOffset + k) % span;
                 if (mouthColumnOpen[i]) continue;
                 int x = xStart + i;
-                if (y > MouthRowLimit(x, contactStart, contactEnd, mouthRows)) continue;
+                if (!ignoreMouthRows && y > MouthRowLimit(x, contactStart, contactEnd, mouthRows)) continue;
                 byte c = cells[row + x];
                 if (c == EMPTY) {
                     mouthColumnOpen[i] = true;
@@ -614,8 +618,8 @@ public class SandCylinderSandGrid : MonoBehaviour {
     }
 
     // Twin of the contact-limited ExtractAtMouth: same columns, same per-column
-    // row limit.
-    public bool HasColorAtMouth(int xStart, int xEnd, byte colorIndex, int contactStart, int contactEnd) {
+    // row limit (or the whole column with ignoreMouthRows).
+    public bool HasColorAtMouth(int xStart, int xEnd, byte colorIndex, int contactStart, int contactEnd, bool ignoreMouthRows = false) {
         if (colorIndex == EMPTY) return false;
         contactStart = Mathf.Clamp(contactStart, 0, width);
         contactEnd = Mathf.Clamp(contactEnd, 0, width);
@@ -626,7 +630,7 @@ public class SandCylinderSandGrid : MonoBehaviour {
         // Support rule (see ExtractAtMouth): walk each column up from the floor
         // and stop at its first EMPTY cell — nothing above a hole is extractable.
         for (int x = xStart; x < xEnd; x++) {
-            int topRow = MouthRowLimit(x, contactStart, contactEnd, mouthRows);
+            int topRow = ignoreMouthRows ? height - 1 : MouthRowLimit(x, contactStart, contactEnd, mouthRows);
             for (int y = 0; y <= topRow; y++) {
                 byte c = cells[y * width + x];
                 if (c == EMPTY) break;

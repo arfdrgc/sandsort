@@ -44,9 +44,9 @@ public class Board : MonoBehaviour {
     const int FLOOR_PIXELS_PER_CELL = 96;
     const float FLOOR_CELL_GAP = 0.035f;          // per side, as a fraction of a cell
     const float FLOOR_CELL_CORNER_RADIUS = 0.12f; // as a fraction of a cell
-    static readonly Color32 FLOOR_CELL_TOP_COLOR = new Color32(54, 60, 108, 255);
-    static readonly Color32 FLOOR_CELL_BOTTOM_COLOR = new Color32(36, 40, 80, 255);
-    static readonly Color32 FLOOR_GAP_COLOR = new Color32(18, 20, 44, 255);
+    static readonly Color32 FLOOR_CELL_TOP_COLOR = new Color32(98, 110, 170, 255);
+    static readonly Color32 FLOOR_CELL_BOTTOM_COLOR = new Color32(76, 86, 142, 255);
+    static readonly Color32 FLOOR_GAP_COLOR = new Color32(46, 52, 96, 255);
     // Checkerboard: every other cell ((x + y) odd) is lifted this far toward white, so equal tones
     // never touch horizontally or vertically.
     const float FLOOR_CHECKER_LIGHTEN = 0.11f;

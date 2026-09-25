@@ -20,24 +20,43 @@ MonoBehaviour:
   _colorPalette: {fileID: 0}
   _boardSize: {x: 6, y: 6}
   _containers:
-  - position: {x: 0, y: 2}
-    shape: {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+  - position: {x: 0, y: 0}
+    shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
     rotation: 0
     cells:
     - {x: 0, y: 0}
     color: 141
-  - position: {x: 2, y: 2}
-    shape: {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+  - position: {x: 3, y: 0}
+    shape: {fileID: 788715909747920191, guid: 0c3a849bbbf564303822818902b4f04e, type: 3}
     rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 171
-  - position: {x: 4, y: 2}
-    shape: {fileID: 869831490262011471, guid: 67bbdbb73b1d745d1af080fea895e8cf, type: 3}
+    color: 141
+  - position: {x: 3, y: 2}
+    shape: {fileID: 6936864354962184566, guid: 1dd68404236004dd2943457d09e29990, type: 3}
+    rotation: 3
+    cells:
+    - {x: 0, y: 0}
+    color: 101
+  - position: {x: 0, y: 2}
+    shape: {fileID: 4971453937965233258, guid: 19635dd25665241ceb3dc1763d2ce1d0, type: 3}
+    rotation: 1
+    cells:
+    - {x: 0, y: 0}
+    color: 101
+  - position: {x: 1, y: 2}
+    shape: {fileID: 1110001046970575419, guid: abec165eb2f8740bdac9a0d0a2af7a1e, type: 3}
     rotation: 0
     cells:
     - {x: 0, y: 0}
-    color: 181
-  _sandTexture: {fileID: 2800000, guid: 661efaa522f14463cb02157f970140e5, type: 3}
+    color: 161
+  - position: {x: 1, y: 1}
+    shape: {fileID: 1110001046970575419, guid: abec165eb2f8740bdac9a0d0a2af7a1e, type: 3}
+    rotation: 0
+    cells:
+    - {x: 0, y: 0}
+    color: 161
+  _gridBlocks: []
+  _sandTexture: {fileID: 2800000, guid: c4b6bd86e44cc4644a58685b122d5720, type: 3}
   _sandPattern: {fileID: 0}
-  _timerSeconds: 300
+  _timerSeconds: 180

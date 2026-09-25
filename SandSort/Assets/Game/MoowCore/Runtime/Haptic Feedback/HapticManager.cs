@@ -29,9 +29,7 @@ namespace Moow {
         }
 
         static public void StopHaptic() {
-            if(instance.conditionalRepetableCoroutine != null) {
-                instance.StopCoroutine(instance.conditionalRepetableCoroutine);
-            }
+            instance?.stopHaptic();
         }
         #endregion
 
@@ -91,15 +89,17 @@ namespace Moow {
         public void stopHaptic() {
             if(_conditionalRepetableCoroutine != null)
                 StopCoroutine(_conditionalRepetableCoroutine);
+            _conditionalRepetableCoroutine = null;
         }
 
         public bool isSupport() {
 #if UNITY_IOS && !UNITY_EDITOR
-        HapticIOSInterface.unityHapticIsSupport();
+            return HapticIOSInterface.unityHapticIsSupport();
 #elif UNITY_ANDROID && !UNITY_EDITOR
-        HapticAndroidInterface.unityHapticIsSupport();
-#endif
+            return HapticAndroidInterface.unityHapticIsSupport();
+#else
             return false;
+#endif
         }
 
         public void enable() {
@@ -146,7 +146,7 @@ namespace Moow {
 
         #region HELPER
         public bool isActive {
-            get => !_dataSO.disableHaptic;
+            get => _dataSO == null || !_dataSO.disableHaptic;
             set => _dataSO.disableHaptic = !value;
         }
 

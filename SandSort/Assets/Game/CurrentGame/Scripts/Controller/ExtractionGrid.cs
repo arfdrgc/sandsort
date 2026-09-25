@@ -284,6 +284,9 @@ public class ExtractionGrid : MonoBehaviour {
 
         sortCandidatesByOverlap();
 
+        // Reaching here means the shape is inside the extraction area — see FINAL SHAPE.
+        bool ignoreMouthRows = _container.fillLevel > FINAL_SHAPE_FILL_THRESHOLD && isLastUnsealedOfColor();
+
         int used = 0;
         for (int k = 0; k < _candidateCount && used < slots; k++) {
             if (_container.remainingCapacity <= 0) return;
@@ -311,7 +314,8 @@ public class ExtractionGrid : MonoBehaviour {
                 _container.remainingCapacity,
                 null,   // no grain target: the grains are drawn below, from the cells actually removed
                 ref _extractionAccumulators[column],
-                ref _grainSpawnAccumulators[column]);
+                ref _grainSpawnAccumulators[column],
+                ignoreMouthRows);
 
             // The accumulator only moves once the whole eligibility chain has passed (matching sand in
             // the contact mouth), so it marks a live drain even on a frame whose budget rounds to 0.
@@ -325,6 +329,27 @@ public class ExtractionGrid : MonoBehaviour {
             spawnGrains(column, removed);
             used++;
         }
+    }
+
+    // FINAL SHAPE (2026-09-25): the last unsealed Container of a colour, once it is more than
+    // FINAL_SHAPE_FILL_THRESHOLD full and inside the extraction area (Update only gets this far past
+    // the top-row and arrival gates), extracts its matching sand from the whole height of its contact
+    // columns instead of only the bottom SandCylinderTunables.extractionMouthRows rows. Contact
+    // columns, colour match, support rule, rate and capacity are unchanged; every other case keeps the
+    // normal mouth.
+    const float FINAL_SHAPE_FILL_THRESHOLD = 0.98f;
+
+    // Every Container of the level, found once. Level parents them all under the Board and builds
+    // them together, and none is added later; sealed ones stay listed (isSealed filters them).
+    Container[] _levelContainers;
+
+    bool isLastUnsealedOfColor() {
+        if (_levelContainers == null) _levelContainers = _board.GetComponentsInChildren<Container>(true);
+        foreach (Container other in _levelContainers) {
+            if (other == null || other == _container || other.isSealed) continue;
+            if (other.sandColorIndex == _container.sandColorIndex) return false;
+        }
+        return true;
     }
 
     // -- Extraction sound ---------------------------------------------------------------------
@@ -450,6 +475,8 @@ public class ExtractionGrid : MonoBehaviour {
 
         int frameCells = s_frameCells;
         s_frameCells = 0;
+        // Haptics read the same per-frame drain total; they run whether or not the sound is on.
+        GameplayHaptics.tickExtraction(frameCells, Time.deltaTime);
         if (!s_sfxPlaying) return;
 
         // Something outside this loop (StopAllSFX, sound switched off) took the source away: forget

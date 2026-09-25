@@ -3,7 +3,51 @@
 Rolling status file. Read this first when resuming work; it records where things
 actually stand, not what was planned. Design specs live in `Docs/`.
 
-**Last updated:** 2026-09-24 (Freeze Time booster, Step 1)
+**Last updated:** 2026-09-25 (cross-device haptics — DONE)
+
+---
+
+## Cross-device haptics — 2026-09-25 — DONE (device-tested), uncommitted
+
+- **Problem:** haptics played on a Xiaomi T9 but not on a Xiaomi 15T Pro (HyperOS). Cause: the old
+  Android engine sent short `VibrationEffect`s with **no usage attributes**. On Android 13+ an untagged
+  short click is classified as *touch feedback*, gated by the system touch-feedback setting and silently
+  dropped by HyperOS. Also: the pre-API-29 fallback used amplitude 15/255 (imperceptible), and a Java
+  exception could reach `GameplayHaptics`, which then switches haptics off for the session.
+- **Architecture unchanged:** callers → `GameplayHaptics` / `HapticManager` (BaseScene, DontDestroyOnLoad,
+  honours `BaseDataSO.disableHaptic`) → `HapticIOSInterface` / `HapticAndroidInterface` → native.
+  No gameplay or sand-physics change.
+- **Android — `AndroidVibrationEngine.cs` (rewritten, same public API):** lazy one-time probe (no static
+  constructor). Vibrator from `VibratorManager.getDefaultVibrator()` on API 31+, else the legacy
+  `"vibrator"` service; context from `AndroidApplication.currentContext`, fallback
+  `UnityPlayer.currentActivity`. Backend = best the device reports it can play:
+  1. **Predefined** (`createPredefined`) — API 30+ and only if `areAllEffectsSupported(click, tick,
+     heavy click)` answers YES (UNKNOWN is not trusted).
+  2. **Effect** — amplitude one-shots / waveforms, API 26+. Without amplitude control: slightly longer
+     pulses at default strength.
+  3. **Legacy** — plain on/off `vibrate(long)` / pattern, any API.
+  4. **Handheld** — `Handheld.Vibrate()` only when no Vibrator exists, rate limited to 1 per 0.4 s.
+  - **The HyperOS fix:** every vibration is tagged game/media usage — `VibrationAttributes.USAGE_MEDIA`
+    on API 33+, `AudioAttributes` (USAGE_GAME, SONIFICATION) below — so it no longer depends on the
+    touch-feedback setting.
+  - **Never throws to the caller:** a Java exception demotes the backend one step and retries; if even
+    tagged Legacy fails, tags are dropped and the chain restarts; last resort Handheld.
+  - VibrationEffects are cached per feedback type. The chosen setup is logged once:
+    `[AndroidVibrationEngine] API …, backend …, amplitude control …, tagged …` (check in logcat).
+  - Predefined effect per type kept from before (Soft = tick, Heavy = heavy click, others click).
+- **Android manifest:** explicit `android.permission.VIBRATE` (no longer relies on Unity auto-adding it).
+- **iOS — `Assets/Plugins/iOS/UnityHaptic.mm`:** `UIImpact` / `UINotification` / `UISelection`
+  FeedbackGenerators. If `CHHapticEngine.capabilitiesForHardware.supportsHaptics` is false (iPhone 6s /
+  SE 1) it falls back to `AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)`, rate limited to 1 per
+  0.4 s. iPad/iPod have no motor → nothing. Plugin importer: iOS only, links CoreHaptics + AudioToolbox
+  (iOS minimum is 15.0, so CoreHaptics is always present).
+- **`HapticManager.cs` fixes:** `isSupport()` returned false always (now the real value); static
+  `StopHaptic()` null-safe; `isActive` safe with no `_dataSO`.
+- **Pitfall (Unity 6):** `AndroidJavaObject.Call<int>(name, int[])` binds to the void typed-args overload
+  (`Call<T>(string, params T[])`) — wrap array args as `new object[] { array }`.
+- **Verified:** compiles (0 errors); device-tested by the user 2026-09-25 — Xiaomi 15T Pro and Xiaomi T9
+  both work. Not yet tested on an iOS device. `NEW_HAPTIC` / `NewAndroidVibrationEngine` (external
+  plugin path) untouched and unused.
 
 ---
 

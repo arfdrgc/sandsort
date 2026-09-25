@@ -88,13 +88,13 @@ public class UISettingsPopup : MonoBehaviour {
     {
         if (key.Equals("privacy"))
         {
-            Application.OpenURL("https://mankrik.com/privacy");
+            Application.OpenURL("https://moowgames.com/privacy/");
         }
     }
 
     public void SendEmail()
     {
-        string mailRecipient = "info@mankrik.com";
+        string mailRecipient = "webmaster@moowgames.com";
         string subject = Uri.EscapeDataString(Application.productName);
         string body = Uri.EscapeDataString("\n\n\n\n\n\n------------------------------\nPlease write the message above\nDevice ID : " + deviceUID + "\nApp Version : " + appVersionID);
         string mailtoURL = "mailto:" + mailRecipient + "?subject=" + subject + "&body=" + body;

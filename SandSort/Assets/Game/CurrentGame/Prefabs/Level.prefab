@@ -127,5 +127,6 @@ MonoBehaviour:
   flowSpread: 0.5
   slideChance: 0.6
   restFriction: 0
+  edgeCollapse: 1
   maxCellsPerFrame: 400000
-  colorNoiseAmount: 0.2
+  colorNoiseAmount: 0.15

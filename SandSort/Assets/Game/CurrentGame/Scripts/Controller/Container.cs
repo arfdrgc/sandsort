@@ -437,6 +437,7 @@ public class Container : MonoBehaviour {
         setSelectedOutline(true);
         setSelectedRenderLayer(true);
         AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
+        GameplayHaptics.shapeSelected();
     }
 
     void dragTo(Vector3 pointerWorld) {
@@ -459,14 +460,17 @@ public class Container : MonoBehaviour {
 
     // The grid position is already the committed, valid cell nearest the visual — the visual just
     // settles onto it (updateVisual). playDropSfx is false when the release was forced by an input
-    // lock (win/lose) rather than by the player letting go, so no drop sound fires over the
-    // win/lose stinger.
+    // lock (win/lose) rather than by the player letting go, so no drop sound (or drop haptic) fires
+    // over the win/lose stinger.
     void endDrag(bool playDropSfx = true) {
         _dragging = false;
         if (s_dragOwner == this) s_dragOwner = null;
         setSelectedOutline(false);
         setSelectedRenderLayer(false);
-        if (playDropSfx) AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
+        if (playDropSfx) {
+            AudioPlayer.PlaySFX(AudioFX.BUBBLE_HIT);
+            GameplayHaptics.shapeDropped();
+        }
     }
 
     // Keeps the authoritative grid position on the cell nearest the visual, updating Board

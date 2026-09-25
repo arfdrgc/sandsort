@@ -529,27 +529,28 @@ public class SandExtractionController : MonoBehaviour {
     // [contactMinWorldX, contactMaxWorldX] is the collector's physically drawn
     // footprint in world X. Only the grid columns whose centres lie inside it
     // are extractable (see SandCylinderSandGrid's contact-limited
-    // ExtractAtMouth for the per-column row limit).
-    public int ExtractAtPoint(Vector3 pointWorld, float contactMinWorldX, float contactMaxWorldX, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator) {
+    // ExtractAtMouth for the per-column row limit). ignoreMouthRows lifts that row
+    // limit to the whole column (gameplay's final-shape rule, see ExtractionGrid).
+    public int ExtractAtPoint(Vector3 pointWorld, float contactMinWorldX, float contactMaxWorldX, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator, bool ignoreMouthRows = false) {
         if (grid == null) return 0;
         float leftWorldX = cylinderCenterWorld.x - cylinderDiameter * 0.5f;
         float columnsPerWorld = grid.Width / cylinderDiameter;
         int contactStart = Mathf.Clamp(Mathf.CeilToInt((contactMinWorldX - leftWorldX) * columnsPerWorld - 0.5f), 0, grid.Width);
         int contactEnd = Mathf.Clamp(Mathf.FloorToInt((contactMaxWorldX - leftWorldX) * columnsPerWorld - 0.5f) + 1, 0, grid.Width);
         return ExtractInContact(pointWorld.x, contactStart, contactEnd, colorIndex, remainingCapacity, grainTarget,
-            ref extractionAccumulator, ref grainSpawnAccumulator);
+            ref extractionAccumulator, ref grainSpawnAccumulator, ignoreMouthRows);
     }
 
-    int ExtractInContact(float pointWorldX, int contactStart, int contactEnd, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator) {
+    int ExtractInContact(float pointWorldX, int contactStart, int contactEnd, byte colorIndex, int remainingCapacity, Transform grainTarget, ref float extractionAccumulator, ref float grainSpawnAccumulator, bool ignoreMouthRows = false) {
         if (remainingCapacity <= 0) return 0;
         if (!CubeXWithinCylinder(pointWorldX)) return 0;
 
         var (xStart, xEnd, _, _) = BlockColumnRangeForCube(pointWorldX);
 
-        if (!grid.HasColorAtMouth(xStart, xEnd, colorIndex, contactStart, contactEnd)) return 0;
+        if (!grid.HasColorAtMouth(xStart, xEnd, colorIndex, contactStart, contactEnd, ignoreMouthRows)) return 0;
 
         return ExtractForCollector(colorIndex, remainingCapacity, grainTarget,
-            xStart, xEnd, contactStart, contactEnd, ref extractionAccumulator, ref grainSpawnAccumulator);
+            xStart, xEnd, contactStart, contactEnd, ref extractionAccumulator, ref grainSpawnAccumulator, ignoreMouthRows);
     }
 
     // The per-collector extraction step shared by the conveyor (ProcessExtraction) and
@@ -559,7 +560,7 @@ public class SandExtractionController : MonoBehaviour {
     // per-cube arrays.
     int ExtractForCollector(byte colorIndex, int remainingCapacity, Transform grainTarget,
         int xStart, int xEnd, int contactStart, int contactEnd,
-        ref float extractionAccumulator, ref float grainSpawnAccumulator) {
+        ref float extractionAccumulator, ref float grainSpawnAccumulator, bool ignoreMouthRows = false) {
         if (grid.GetColorCount(colorIndex) <= 0) {
             // Nothing left of this color anywhere in the cylinder — this cube
             // simply has nothing to do this pass; it keeps moving and will
@@ -577,7 +578,7 @@ public class SandExtractionController : MonoBehaviour {
         int removed = 0;
         if (budget > 0) {
             removedCellsBuffer.Clear();
-            removed = grid.ExtractAtMouth(xStart, xEnd, colorIndex, budget, contactStart, contactEnd, removedCellsBuffer);
+            removed = grid.ExtractAtMouth(xStart, xEnd, colorIndex, budget, contactStart, contactEnd, removedCellsBuffer, ignoreMouthRows);
             extractionAccumulator -= budget;
         }
 

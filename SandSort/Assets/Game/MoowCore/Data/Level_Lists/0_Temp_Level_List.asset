@@ -20,6 +20,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 10a9a32e269ee487c9e54ec6adf9cab0, type: 2}
   - {fileID: 11400000, guid: 7bf005c4b53434438880e25f78dde3a2, type: 2}
   - {fileID: 11400000, guid: 0984dcabb9f9c4f45b5ae95cb2153097, type: 2}
+  - {fileID: 11400000, guid: aed421e6bfab44f7191a37f8f5dd4ef6, type: 2}
   - {fileID: 11400000, guid: 30027c3b0048541b9a540c1fa59a637d, type: 2}
   - {fileID: 11400000, guid: af9bb8f9d646c40bdb3e1ae81b567c8a, type: 2}
   _repeatingLevels:
@@ -31,4 +32,4 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 0984dcabb9f9c4f45b5ae95cb2153097, type: 2}
   - {fileID: 11400000, guid: 30027c3b0048541b9a540c1fa59a637d, type: 2}
   mechanics: {fileID: 11400000, guid: 50eac03b9f5fe4a79b1c2b2222d5fe1a, type: 2}
-  _testLevel: {fileID: 0}
+  _testLevel: {fileID: 11400000, guid: 0376bd8a4526d4e349576031111cb113, type: 2}
